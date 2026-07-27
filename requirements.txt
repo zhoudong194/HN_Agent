@@ -1,0 +1,37 @@
+# ============================================================
+# requirements.txt — Company Rules RAG System
+#
+# Install:  pip install -r requirements.txt
+# Docker:   pre-installed via Dockerfile (no pip needed in container)
+# ============================================================
+
+# ---- Core RAG framework ----
+llama-index-core>=0.10.0
+llama-index-embeddings-huggingface>=0.2.0
+llama-index-vector-stores-chroma>=0.1.0
+
+# ---- Document parsing ----
+python-docx>=1.0.0
+pypdf>=4.0.0
+
+# ---- Vector store ----
+chromadb>=0.4.0
+
+# ---- LLM / OpenAI SDK ----
+openai>=1.0.0
+
+# ---- Web server ----
+fastapi>=0.109.0
+uvicorn[standard]>=0.27.0
+
+# ---- Embedding model & tokenizer ----
+sentencepiece>=0.1.99
+torch>=2.0.0
+transformers>=4.35.0
+accelerate>=0.25.0
+
+# ---- Config / env ----
+python-dotenv>=1.0.0
+
+# ---- Utilities ----
+numpy>=1.24.0

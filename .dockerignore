@@ -1,0 +1,61 @@
+# ============================================================
+# .dockerignore — exclude build / cache / secrets from image
+# ============================================================
+
+# Git
+.git
+.gitignore
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+build/
+dist/
+.eggs/
+
+# Virtual environments
+venv/
+env/
+.venv/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Secrets & local config
+.env
+.env.local
+.env.*.local
+*.env
+
+# Local data (should be volume-mounted from host)
+chroma_db/
+data/
+
+# Logs
+*.log
+logs/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Model cache (should be volume-mounted)
+# Uncomment if you prefer to re-download on every start:
+# models/
+# hf_cache/
+
+# Test / dev artifacts
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.cache/
+_smoke_*.py

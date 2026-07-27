@@ -1,0 +1,69 @@
+# ============================================================
+# docker-compose.yml — Company Rules RAG System
+#
+# Usage:
+#   cp .env.example .env
+#   # edit .env with your API keys
+#   docker compose up --build
+#
+# After first run, data and vectors persist in ./chroma_db
+# and ./data. Model cache speeds up subsequent starts.
+# ============================================================
+
+services:
+  rag-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: company-rules-rag
+    restart: unless-stopped
+
+    ports:
+      - "${PORT:-8000}:8000"
+
+    environment:
+      # LLM settings (override in .env or here)
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - OPENAI_API_BASE=${OPENAI_API_BASE:-https://dashscope.aliyuncs.com/compatible-mode/v1}
+      - LLM_MODEL=${LLM_MODEL:-qwen-plus}
+      - LLM_TEMPERATURE=${LLM_TEMPERATURE:-0.1}
+      - LLM_MAX_TOKENS=${LLM_MAX_TOKENS:-1024}
+      # Embedding model
+      - EMBED_MODEL_NAME=${EMBED_MODEL_NAME:-BAAI/bge-large-zh-v1.5}
+      - HF_TOKEN=${HF_TOKEN:-}
+      # Vector store & dirs
+      - CHROMA_PERSIST_DIR=/app/chroma_db
+      - COLLECTION_NAME=${COLLECTION_NAME:-rules_vectors}
+      - DATA_DIR=/app/data
+      # RAG
+      - TOP_K=${TOP_K:-5}
+      - SIMILARITY_THRESHOLD=${SIMILARITY_THRESHOLD:-0.0}
+      # Server
+      - HOST=0.0.0.0
+      - PORT=8000
+      # Python
+      - PYTHONUNBUFFERED=1
+
+    volumes:
+      # Persist ChromaDB vectors across restarts
+      - ./chroma_db:/app/chroma_db
+      # Source documents directory
+      - ./data:/app/data
+      # HuggingFace model cache (speeds up restarts, ~330 MB)
+      - ~/.cache/huggingface:/root/.cache/huggingface
+      # Config (read-only so .env is not accidentally modified inside container)
+      - ./.env:/app/.env:ro
+
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 90s
+
+    # Deploy limits (tune for your hardware)
+    deploy:
+      resources:
+        limits:
+          # ChromaDB + BGE model can be memory-hungry during first load
+          memory: 4G
