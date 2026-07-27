@@ -1,65 +1,68 @@
 """
-server.py - FastAPI backend for the Company Rules RAG system.
+server.py - FastAPI backend for Company Rules RAG system (PostgreSQL + pgvector).
 
-Exposes a small REST surface plus a single-page web UI (static/index.html).
-
-Endpoints:
-    GET  /                  -> static/index.html
+v4 endpoints:
+    GET  /                   -> static/index.html
     GET  /api/health        -> service status
     POST /api/query         -> RAG query
-    POST /api/ingest        -> upload a .docx / .md file and ingest it
-    GET  /api/documents     -> list ingested documents
-    DELETE /api/documents   -> wipe the collection (rebuild)
+    POST /api/documents     -> upload a .docx / .md file and ingest it
+    GET  /api/documents     -> list documents (with metadata)
+    DELETE /api/documents/{id}  -> archive document (soft delete)
+    DELETE /api/documents/{id}/hard -> permanently delete document
+    GET  /api/categories    -> list distinct categories
 """
 
+from __future__ import annotations
+
 import io
+import logging
+import logging.handlers
 import os
 import sys
-import logging
-import shutil
+import uuid
 from datetime import datetime
 from pathlib import Path
-from typing import List
+from typing import Any, Dict, List, Optional
 
-# Force UTF-8 stdout for predictable logging
-sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
-logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+# Logging to file — avoids "I/O on closed file" when running in background
+APP_DIR = Path(__file__).resolve().parent
+_log_file = APP_DIR / "server.log"
+_log_handler = logging.handlers.RotatingFileHandler(
+    str(_log_file), maxBytes=5_000_000, backupCount=3, encoding="utf-8"
+)
+_log_handler.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(message)s"))
+logging.basicConfig(level=logging.INFO, handlers=[_log_handler])
 log = logging.getLogger("server")
 
-import config  # centralized .env-driven configuration
+import config
 
-from fastapi import FastAPI, HTTPException, UploadFile, File, Form
+from fastapi import FastAPI, HTTPException, Query, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 # Project modules
-from rag_service import get_service, CHROMA_PERSIST_DIR, COLLECTION_NAME
+from rag_service import get_service
+import database
 from data_ingestion import (
     DATA_DIR,
     setup_embedding_model,
-    setup_vector_store,
-    scan_data_directory,
-    create_semantic_chunks,
     convert_to_markdown,
+    create_semantic_chunks,
 )
-
-# Log effective (non-secret) config on startup so misconfiguration is visible
-log.info("Loaded configuration: %s", config.status_summary())
 
 # ----------------------------------------------------------------------
 # App setup
 # ----------------------------------------------------------------------
-
 APP_DIR = Path(__file__).resolve().parent
 STATIC_DIR = APP_DIR / "static"
 STATIC_DIR.mkdir(exist_ok=True)
 
 app = FastAPI(
     title="Company Rules RAG API",
-    version="1.0.0",
-    description="RAG backend for company policy Q&A (LLM + retrieval-only fallback).",
+    version="3.0.0",
+    description="RAG backend powered by FAISS + SQLite.",
 )
 
 app.add_middleware(
@@ -70,8 +73,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Serve the single-page UI
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+
+log.info("Loaded configuration: %s", config.status_summary())
 
 
 # ----------------------------------------------------------------------
@@ -82,19 +86,27 @@ app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 class QueryRequest(BaseModel):
     question: str = Field(..., min_length=1, max_length=2000)
     top_k: int = Field(default=5, ge=1, le=20)
+    min_score: float = Field(default=0.0, ge=0.0, le=1.0)
 
 
 class SourceItem(BaseModel):
+    id: str
     text: str
-    score: float | None = None
-    metadata: dict = Field(default_factory=dict)
+    score: float
+    header_1: Optional[str] = None
+    header_2: Optional[str] = None
+    header_3: Optional[str] = None
+    doc_filename: Optional[str] = None
+    doc_category: Optional[str] = None
+    document_id: Optional[str] = None
 
 
 class QueryResponse(BaseModel):
     query: str
-    mode: str  # "llm" | "retrieval_only"
+    mode: str
     answer: str
     sources: List[SourceItem]
+    retrieval_stats: Optional[Dict[str, Any]] = None
 
 
 class HealthResponse(BaseModel):
@@ -102,23 +114,49 @@ class HealthResponse(BaseModel):
     llm_available: bool
     embedding_model: str
     llm_model: str
-    collection: str
+    vector_store: str
+    metadata_store: str
     document_count: int
-
-
-class IngestResponse(BaseModel):
-    filename: str
-    chunks_added: int
-    total_chunks: int
-    collection_size: int
-    message: str
+    chunk_count: int
 
 
 class DocumentInfo(BaseModel):
+    id: str
     filename: str
     file_type: str
-    size_bytes: int
-    modified_at: str
+    file_size: int
+    category: Optional[str]
+    uploader: Optional[str]
+    title: Optional[str]
+    status: str
+    version: int
+    uploaded_at: str
+    updated_at: str
+    chunk_count: int = 0
+
+
+class IngestResponse(BaseModel):
+    id: str
+    filename: str
+    chunks_added: int
+    total_chunks: int
+    message: str
+
+
+class CategoryResponse(BaseModel):
+    categories: List[str]
+
+
+# ----------------------------------------------------------------------
+# Helpers
+# ----------------------------------------------------------------------
+
+
+def _reset_rag_service():
+    from rag_service import _service as svc
+
+    if svc is not None:
+        svc._initialized = False
 
 
 # ----------------------------------------------------------------------
@@ -128,29 +166,27 @@ class DocumentInfo(BaseModel):
 
 @app.get("/", include_in_schema=False)
 async def index():
-    """Serve the single-page web UI."""
-    index_file = STATIC_DIR / "index.html"
-    if not index_file.exists():
-        raise HTTPException(status_code=404, detail="UI not built yet")
-    return FileResponse(str(index_file))
+    return FileResponse(str(STATIC_DIR / "index.html"))
 
 
 @app.get("/api/health", response_model=HealthResponse)
 async def health():
-    """Service status snapshot."""
     svc = get_service()
     status = svc.get_status()
     if not status.get("initialized"):
-        raise HTTPException(status_code=503, detail=svc.get_status())
+        raise HTTPException(status_code=503, detail=status)
     return HealthResponse(**status)
 
 
 @app.post("/api/query", response_model=QueryResponse)
 async def query(req: QueryRequest):
-    """Run a RAG query against the knowledge base."""
     svc = get_service()
     try:
-        result = svc.query(req.question, top_k=req.top_k)
+        result = svc.query(
+            req.question,
+            top_k=req.top_k,
+            min_score=req.min_score,
+        )
     except Exception as e:
         log.exception("Query failed")
         raise HTTPException(status_code=500, detail=str(e))
@@ -161,99 +197,161 @@ async def query(req: QueryRequest):
         mode=result["mode"],
         answer=result["answer"],
         sources=sources,
+        retrieval_stats=result.get("retrieval_stats"),
     )
 
 
-@app.post("/api/ingest", response_model=IngestResponse)
-async def ingest(file: UploadFile = File(...)):
-    """Upload a single .docx / .md file and add it to the vector store."""
+@app.post("/api/documents", response_model=IngestResponse)
+async def upload_document(
+    file: UploadFile = File(...),
+    category: Optional[str] = Form(None),
+    uploader: Optional[str] = Form(None),
+):
+    """
+    上传单个文档（.docx / .md），解析文本、切块、向量化后存入 FAISS + SQLite。
+    自动检测重复文件（SHA-256 哈希）。
+    """
     suffix = Path(file.filename or "").suffix.lower()
-    if suffix not in {".docx", ".md"}:
+    if suffix not in {".docx", ".doc", ".md"}:
         raise HTTPException(
             status_code=400,
-            detail=f"Unsupported file type: {suffix}. Supported: .docx, .md",
+            detail=f"Unsupported file type: {suffix}. Supported: .docx, .doc, .md",
         )
 
+    # 保存文件到 data/
     target = Path(DATA_DIR) / file.filename
     target.parent.mkdir(parents=True, exist_ok=True)
+    content = await file.read()
     with open(target, "wb") as f:
-        shutil.copyfileobj(file.file, f)
-    log.info("Saved upload to %s", target)
+        f.write(content)
+    log.info("Saved upload: %s (%d bytes)", target, len(content))
 
-    # Run the ingestion pipeline scoped to this one file
-    documents = convert_to_markdown(str(target))
-    if not documents:
-        raise HTTPException(status_code=400, detail="Could not extract text from file")
-
-    from llama_index.core import StorageContext, VectorStoreIndex
-    parser_kwargs = dict(include_metadata=True, include_prev_next_rel=True)
-    from llama_index.core.node_parser import MarkdownNodeParser
-    from llama_index.core.schema import MetadataMode
-
-    parser = MarkdownNodeParser(**parser_kwargs, metadata_mode=MetadataMode.ALL)
-    nodes = parser.get_nodes_from_documents(documents)
-
-    collection, _ = setup_vector_store()
-    from llama_index.vector_stores.chroma import ChromaVectorStore
-
-    vector_store = ChromaVectorStore(chroma_collection=collection)
-    storage_context = StorageContext.from_defaults(vector_store=vector_store)
-    embed_model = setup_embedding_model()
-
-    VectorStoreIndex(
-        nodes=nodes,
-        storage_context=storage_context,
-        embed_model=embed_model,
-        show_progress=False,
-    )
-
-    # Reset the RAG service so next request reloads the new vectors
-    from rag_service import _service as svc_singleton
-    svc_singleton._initialized = False
-
-    collection_size = collection.count()
-    return IngestResponse(
+    # 创建数据库记录
+    doc_record, is_new = database.create_document(
         filename=file.filename,
-        chunks_added=len(nodes),
-        total_chunks=len(nodes),
-        collection_size=collection_size,
-        message=f"Successfully ingested '{file.filename}' ({len(nodes)} chunks).",
+        file_type=suffix,
+        file_size=len(content),
+        content=content,
+        category=category,
+        uploader=uploader,
+        title=Path(file.filename).stem,
     )
+
+    if not is_new:
+        raise HTTPException(
+            status_code=409,
+            detail=f"文件 '{file.filename}' 已存在且内容相同（SHA-256 重复检测）。如需重新入库，请先删除旧记录。",
+        )
+
+    doc_id = doc_record["id"]
+
+    # 切块 + 向量化
+    try:
+        documents = convert_to_markdown(str(target))
+        if not documents:
+            raise ValueError("无法从文件中提取文本")
+
+        nodes = create_semantic_chunks(documents)
+        embed_model = setup_embedding_model()
+
+        chunk_records = []
+        for i, node in enumerate(nodes):
+            text = node.get_text()
+            if not text or len(text.strip()) < 10:
+                continue
+
+            vec = embed_model.get_text_embedding(text)
+            chunk_records.append({
+                "document_id": doc_id,
+                "text": text,
+                "vec": vec,
+                "header_1": node.metadata.get("header_1"),
+                "header_2": node.metadata.get("header_2"),
+                "header_3": node.metadata.get("header_3"),
+                "source_file": str(target),
+                "chunk_index": i,
+            })
+
+        if chunk_records:
+            n = database.insert_chunks_batch(chunk_records)
+            # Rebuild FAISS index
+            database.rebuild_index()
+            log.info("Inserted %d chunks for %s", n, file.filename)
+
+        _reset_rag_service()
+        total = database.get_chunk_count()
+
+        return IngestResponse(
+            id=str(doc_id),
+            filename=file.filename,
+            chunks_added=len(chunk_records),
+            total_chunks=total,
+            message=f"已成功入库 '{file.filename}'（{len(chunk_records)} 个语义块）",
+        )
+
+    except Exception as e:
+        log.exception("Ingestion failed")
+        # 回滚：删除文档记录
+        database.hard_delete_document(doc_id)
+        raise HTTPException(status_code=500, detail=f"入库失败: {e}")
 
 
 @app.get("/api/documents", response_model=List[DocumentInfo])
-async def list_documents():
-    """List files currently in the data directory."""
-    docs: List[DocumentInfo] = []
-    data_path = Path(DATA_DIR)
-    if not data_path.exists():
-        return docs
-    for p in sorted(data_path.iterdir()):
-        if p.is_file() and p.suffix.lower() in {".docx", ".md", ".pdf"}:
-            stat = p.stat()
-            docs.append(
-                DocumentInfo(
-                    filename=p.name,
-                    file_type=p.suffix.lower().lstrip("."),
-                    size_bytes=stat.st_size,
-                    modified_at=datetime.fromtimestamp(stat.st_mtime).isoformat(),
-                )
+async def list_all_documents(
+    status: Optional[str] = Query(None, description="active / archived / 空=全部"),
+    category: Optional[str] = Query(None),
+    limit: int = Query(100, ge=1, le=1000),
+    offset: int = Query(0, ge=0),
+):
+    docs = database.list_documents(status=status, category=category, limit=limit, offset=offset)
+    result: List[DocumentInfo] = []
+    for doc in docs:
+        chunk_cnt = database.get_document_chunk_count(doc["id"])
+        result.append(
+            DocumentInfo(
+                id=str(doc["id"]),
+                filename=doc["filename"],
+                file_type=doc["file_type"],
+                file_size=doc["file_size"],
+                category=doc.get("category"),
+                uploader=doc.get("uploader"),
+                title=doc.get("title"),
+                status=doc["status"],
+                version=doc["version"],
+                uploaded_at=doc["uploaded_at"],
+                updated_at=doc["updated_at"],
+                chunk_count=chunk_cnt,
             )
-    return docs
+        )
+    return result
 
 
-@app.delete("/api/documents", response_model=dict)
-async def clear_documents():
-    """Drop the Chroma collection (data files are kept)."""
-    import chromadb
-    client = chromadb.PersistentClient(path=CHROMA_PERSIST_DIR)
-    try:
-        client.delete_collection(name=COLLECTION_NAME)
-    except Exception as e:
-        log.warning("delete_collection: %s", e)
-    from rag_service import _service as svc_singleton
-    svc_singleton._initialized = False
-    return {"message": "Collection cleared. Re-ingest documents to repopulate."}
+@app.delete("/api/documents/{doc_id}", response_model=dict)
+async def archive_doc(doc_id: str):
+    """软删除文档（标记为 archived），其所有 chunk 同步删除。"""
+    ok = database.archive_document(doc_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Document not found")
+    _reset_rag_service()
+    return {"message": f"Document {doc_id} has been archived.", "status": "archived"}
+
+
+@app.delete("/api/documents/{doc_id}/hard", response_model=dict)
+async def hard_delete_doc(doc_id: str):
+    """永久删除文档及全部 chunk（不可恢复）。"""
+    doc = database.get_document(doc_id)
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+    ok = database.hard_delete_document(doc_id)
+    _reset_rag_service()
+    return {"message": f"Document {doc_id} permanently deleted.", "status": "deleted"}
+
+
+@app.get("/api/categories", response_model=CategoryResponse)
+async def list_categories():
+    """返回所有已使用的文档分类（去重）。"""
+    cats = database.get_categories()
+    return CategoryResponse(categories=cats)
 
 
 # ----------------------------------------------------------------------
@@ -263,20 +361,16 @@ async def clear_documents():
 
 @app.on_event("startup")
 async def _warmup():
-    """Pre-load the RAG service so the first /api/query is fast."""
     log.info("Warming up RAG service...")
     try:
         svc = get_service()
         svc.initialize()
         log.info("RAG service ready: %s", svc.get_status())
     except Exception as e:
-        log.warning("RAG warmup failed: %s", e)
+        log.warning("RAG warmup failed: %s — will retry on first request", e)
 
 
 if __name__ == "__main__":
     import uvicorn
 
-    host = config.HOST
-    port = config.PORT
-    log.info("Starting server on http://%s:%d", host, port)
-    uvicorn.run("server:app", host=host, port=port, reload=False)
+    uvicorn.run("server:app", host=config.HOST, port=config.PORT, reload=False)

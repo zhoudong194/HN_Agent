@@ -1,57 +1,63 @@
-# ============================================================
-# Stage 1: Build stage — install all Python dependencies
-# ============================================================
+# ================================================================
+# Dockerfile — Company Rules RAG System (PostgreSQL + pgvector)
+#
+# Multi-stage build:
+#   stage 1  — download models (~330 MB)
+#   stage 2  — production runtime image
+# ================================================================
 FROM python:3.11-slim AS builder
 
 WORKDIR /app
 
-# Install build dependencies (compiled deps for numpy / torch)
+# Install build dependencies (for sentencepiece / torch)
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    gcc \
-    g++ \
-    libgomp1 \
+    build-essential \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
-RUN pip install --no-cache-dir --upgrade pip \
-    && pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
 
-# ============================================================
-# Stage 2: Runtime stage — slim image with all deps
-# ============================================================
+
+# ================================================================
 FROM python:3.11-slim
+
+LABEL maintainer="HN_Agent"
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+ENV DEBIAN_FRONTEND=noninteractive
 
 WORKDIR /app
 
-# Runtime-only system packages (no compiler needed)
+# Runtime dependencies only
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    libgomp1 \
+    libpq5 \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy pre-installed packages from builder
+# Copy installed packages from builder
 COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
-COPY --from=builder /usr/local/bin             /usr/local/bin
+COPY --from=builder /usr/local/bin /usr/local/bin
 
 # Copy application code
-COPY . .
+COPY config.py .
+COPY database.py .
+COPY rag_service.py .
+COPY data_ingestion.py .
+COPY server.py .
+COPY rag_query.py .
+COPY init_db.py .
+COPY static/ ./static/
+COPY .env.example .env.template
 
-# Expose FastAPI port
-EXPOSE 8000
+# Pre-download BGE embedding model on first run (done at startup via entrypoint)
+ENV HF_HUB_OFFLINE=0
+ENV TRANSFORMERS_OFFLINE=0
 
-# Environment: let container env vars override .env defaults
-ENV PYTHONUNBUFFERED=1
-
-# ------------------------------------------------------------------
-# Volume mounts (bind at runtime via docker-compose or -v):
-#   - ./data              : source documents (.docx / .md)
-#   - ./chroma_db         : ChromaDB vector store (persistent)
-#   - ~/.cache/huggingface: BGE model cache (speeds up restarts)
-# ------------------------------------------------------------------
-VOLUME ["/app/data", "/app/chroma_db", "/root/.cache/huggingface"]
-
-# Health check: confirm the API responds 200
-HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
-    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')" \
-    || exit 1
-
-CMD ["python", "server.py"]
+# Entrypoint: init DB on first start, then run server
+ENTRYPOINT ["/bin/bash", "-c"]
+CMD [\
+    "python init_db.py && \
+     python data_ingestion.py && \
+     uvicorn server:app --host 0.0.0.0 --port 8000"\
+]

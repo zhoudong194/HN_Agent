@@ -1,10 +1,10 @@
 """
-rag_service.py - RAG service using PostgreSQL + pgvector (HNSW index).
+rag_service.py - Reusable RAG service using FAISS + SQLite.
 
-v4 PostgreSQL + pgvector:
-  • pgvector Docker 容器提供向量存储和 HNSW 近似最近邻搜索
-  • cosine similarity via pgvector <=> operator
-  • 向量维度 1024（BGE bge-large-zh-v1.5）
+v3 重大变化：
+  • FAISS IndexHNSWFlat 替代 ChromaDB/pgvector，向量搜索完全本地化
+  • SQLite 替代 PostgreSQL，元数据存储无需额外部署
+  • cosine similarity via normalized vectors + inner product
 """
 
 from __future__ import annotations
@@ -68,7 +68,7 @@ SYSTEM_PROMPT = """你是一个企业规章制度咨询助手，基于阿里云�
 
 
 class PolicyRAGService:
-    """RAG 服务核心类（单例模式）。使用 PostgreSQL + pgvector 进行向量检索。"""
+    """RAG 服务核心类（单例模式）。使用 FAISS + SQLite 进行向量检索。"""
 
     def __init__(self):
         self.embed_model = None
@@ -80,10 +80,10 @@ class PolicyRAGService:
         if self._initialized:
             return self._status()
 
-        logger.info("Initializing PolicyRAGService v4 (PostgreSQL + pgvector)")
+        logger.info("Initializing PolicyRAGService v3 (FAISS + SQLite)")
 
         # Embedding model
-        logger.info("[RAG] Loading BGE embedding model...")
+        print("[RAG] Loading BGE embedding model...")
         from llama_index.embeddings.huggingface import HuggingFaceEmbedding
 
         self.embed_model = HuggingFaceEmbedding(
@@ -92,21 +92,18 @@ class PolicyRAGService:
             text_instruction="把这段文章转化成一个向量表示：",
             embed_batch_size=32,
         )
-        logger.info(f"[RAG] Embedding model: {config.EMBED_MODEL_NAME} (dim={config.EMBED_DIM})")
+        print(f"[RAG] Embedding model: {config.EMBED_MODEL_NAME} (dim={config.EMBED_DIM})")
 
-        # BM25 sparse index (built on top of PostgreSQL chunks)
-        logger.info("[RAG] Building BM25 index...")
-        import recall
-        recall.ensure_bm25()
-        logger.info("[RAG] BM25 index ready")
+        # LLM
+        print("[RAG] Configuring LLM...")
         api_key = config.OPENAI_API_KEY
         api_base = config.OPENAI_API_BASE
         self._has_api_key = bool(api_key and api_key.strip())
 
         if not self._has_api_key:
-            logger.warning("[RAG] OPENAI_API_KEY not set -> retrieval-only mode")
+            print("[RAG] OPENAI_API_KEY not set -> retrieval-only mode")
         else:
-            logger.info(f"[RAG] LLM: {config.LLM_MODEL} ({api_base})")
+            print(f"[RAG] LLM: {config.LLM_MODEL} ({api_base})")
             self._llm_client = _QwenClient(
                 model=config.LLM_MODEL,
                 api_key=api_key,
@@ -116,7 +113,7 @@ class PolicyRAGService:
             )
 
         self._initialized = True
-        logger.info("[RAG] PolicyRAGService initialized")
+        print("[RAG] PolicyRAGService initialized")
         return self._status()
 
     def _status(self) -> Dict[str, Any]:
@@ -134,8 +131,8 @@ class PolicyRAGService:
             "llm_available": self._has_api_key,
             "embedding_model": config.EMBED_MODEL_NAME,
             "llm_model": config.LLM_MODEL if self._has_api_key else "none",
-            "vector_store": "pgvector HNSW (PostgreSQL)",
-            "metadata_store": "PostgreSQL",
+            "vector_store": "FAISS IndexHNSW",
+            "metadata_store": "SQLite",
             "document_count": doc_count,
             "chunk_count": chunk_count,
         }
@@ -159,7 +156,7 @@ class PolicyRAGService:
 
         步骤：
           1. BGE 将用户问题转为向量
-          2. 三路召回（dense + sparse + exact）→ RRF融合 → CrossEncoder精排
+          2. FAISS HNSW 找到最相似的 chunk
           3. LLM 生成答案（或仅返回检索结果）
         """
         if not self._initialized:
@@ -178,20 +175,16 @@ class PolicyRAGService:
         # Step 1: 计算查询向量
         query_vector = self.embed_model.get_query_embedding(user_question)
 
-        # Step 2: 多路召回 + RRF融合 + 精排
-        from recall import multi_way_retrieve
-        retrieval = multi_way_retrieve(
-            query=user_question,
+        # Step 2: FAISS 检索
+        hits = database.search_similar_chunks(
             query_vector=query_vector,
             top_k=k,
-            retrieve_k=20,
             min_score=threshold,
         )
 
-        result["sources"] = retrieval.sources
-        result["retrieval_stats"] = retrieval.retrieval_stats
+        result["sources"] = hits
 
-        if not retrieval.sources:
+        if not hits:
             result["answer"] = "未找到相关内容，请尝试换一种问法。"
             return result
 

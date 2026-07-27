@@ -1,16 +1,14 @@
 """
 data_ingestion.py - Offline ingestion script for company rules RAG system.
 
-v4 使用 PostgreSQL + pgvector 进行向量检索和存储。
-HNSW 索引在 INSERT 时自动维护，无需重建步骤。
+v3 使用 FAISS IndexHNSWFlat 进行向量检索（替代 ChromaDB / pgvector）。
+元数据存储在 SQLite，无需额外部署数据库服务。
 
 Pipeline:
-    文件扫描 → 文本提取 → 语义切块 → BGE 向量化 → PostgreSQL 入库
+    文件扫描 → 文本提取 → 语义切块 → BGE 向量化 → FAISS 索引 + SQLite 入库
 """
 
 from __future__ import annotations
-
-import re
 
 import hashlib
 import io
@@ -27,15 +25,15 @@ import config
 
 # Document parsing
 import docx
-import docx2txt
 import textract
 from llama_index.core import Document
-from llama_index.core.node_parser import SentenceSplitter
+from llama_index.core.node_parser import MarkdownNodeParser
+from llama_index.core.schema import MetadataMode
 
 # Embedding model
 from llama_index.embeddings.huggingface import HuggingFaceEmbedding
 
-# Database (PostgreSQL + pgvector)
+# Database (FAISS + SQLite)
 import database
 
 # Configuration
@@ -45,30 +43,12 @@ EMBED_DIM = config.EMBED_DIM
 
 
 def doc_to_text(file_path: str) -> str:
-    """Extract text from legacy .doc file. Uses textract first, falls back to docx2txt."""
+    """Extract text from legacy .doc file using textract."""
     try:
         text = textract.process(file_path, extension="doc", encoding="utf-8")
-        decoded = text.decode("utf-8", errors="replace")
-        # Check for garbled text (high '?' ratio after decode)
-        q_ratio = decoded.count("?") / max(len(decoded), 1)
-        if q_ratio > 0.1:
-            raise ValueError(f"High question-mark ratio: {q_ratio:.1%}")
-        return decoded
-    except Exception:
-        # Fallback: try docx2txt on the .doc file by converting path
-        try:
-            # docx2txt only works with .docx, but we can try reading as binary
-            import subprocess
-            result = subprocess.run(
-                ["python", "-c",
-                 f"import docx2txt; print(docx2txt.process(r'{file_path}'))"],
-                capture_output=True, text=True, encoding="utf-8",
-                timeout=30,
-            )
-            if result.returncode == 0 and result.stdout.strip():
-                return result.stdout
-        except Exception:
-            pass
+        return text.decode("utf-8", errors="replace")
+    except Exception as e:
+        print(f"  [!] textract failed for {file_path}: {e}")
         return ""
 
 
@@ -160,15 +140,11 @@ def scan_data_directory(data_dir: str) -> List[tuple[Path, Document]]:
 
 
 def create_semantic_chunks(documents: List[Document]) -> List:
-    """
-    Parse documents into semantic chunks using SentenceSplitter.
-    Chunk size = 300 chars, overlap = 60 chars.
-    Headings are included in the text as metadata context.
-    """
-    parser = SentenceSplitter(
-        chunk_size=300,
-        chunk_overlap=60,
+    """Parse documents into semantic chunks using MarkdownNodeParser."""
+    parser = MarkdownNodeParser(
         include_metadata=True,
+        include_prev_next_rel=True,
+        metadata_mode=MetadataMode.ALL,
     )
     nodes = parser.get_nodes_from_documents(documents)
     return nodes
@@ -186,9 +162,9 @@ def setup_embedding_model() -> HuggingFaceEmbedding:
 
 
 def ingest_to_database():
-    """Main ingestion pipeline: scan → chunk → embed → PostgreSQL / pgvector."""
+    """Main ingestion pipeline: scan → chunk → embed → FAISS + SQLite."""
     print("=" * 60)
-    print("Starting RAG Data Ingestion Pipeline (PostgreSQL + pgvector)")
+    print("Starting RAG Data Ingestion Pipeline (FAISS + SQLite)")
     print("=" * 60)
 
     # Step 1: Embedding model
@@ -239,21 +215,9 @@ def ingest_to_database():
         ]
 
         chunk_records = []
-        skipped = 0
         for i, node in enumerate(doc_nodes):
             text = node.get_text()
-            if not text:
-                skipped += 1
-                continue
-
-            # Content quality gate
-            stripped = text.strip()
-            if len(stripped) < 30:
-                skipped += 1
-                continue
-            cjk = len(re.findall(r"[\u4e00-\u9fff]", stripped))
-            if cjk / max(len(stripped), 1) < 0.15:
-                skipped += 1
+            if not text or len(text.strip()) < 10:
                 continue
 
             vec = embed_model.get_text_embedding(text)
@@ -270,19 +234,17 @@ def ingest_to_database():
 
         if chunk_records:
             n = database.insert_chunks_batch(chunk_records)
-            print(f"      -> inserted {n} chunks" + (f" (skipped {skipped} low-quality)" if skipped else ""))
+            print(f"      → inserted {n} chunks")
 
-    # Rebuild BM25 index after ingestion
-    print("\n[5/5] Building BM25 index...")
-    import recall
-    recall.rebuild_bm25()
-    print("  ✓ BM25 index built")
+    # Step 5: Rebuild FAISS index
+    print("\n[5/5] Building FAISS HNSW index...")
+    database.rebuild_index()
 
     # Summary
     total_chunks = database.get_chunk_count()
-    print(f"  ✓ {total_chunks} chunks indexed in PostgreSQL")
-    print(f"  ✓ pgvector HNSW index auto-maintained")
-    print(f"  ✓ BM25 sparse index in memory")
+    print(f"  ✓ FAISS index rebuilt with {total_chunks} total chunks")
+    print(f"  ✓ SQLite metadata: {database.META_DB_PATH}")
+    print(f"  ✓ FAISS index: {database.INDEX_FILE}")
 
     print("\n" + "=" * 60)
     print(f"[OK] Ingestion Complete!")
