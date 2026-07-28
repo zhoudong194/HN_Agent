@@ -81,6 +81,22 @@ POLICY_KEYWORDS = {
     "benefit", "approval", "invoice",
 }
 
+DOC_TYPE_KEYWORDS = {
+    "文档", "文件", "资料", "材料", "论文", "报告", "指导书", "实验", "课程",
+    "手册", "说明书", "内容", "知识库", "入库",
+    "document", "file", "paper", "report", "manual", "guide", "experiment",
+}
+
+DOC_ACTION_KEYWORDS = {
+    "总结", "概括", "归纳", "摘要", "提炼", "梳理", "介绍", "讲了什么",
+    "主要内容", "大意", "要点", "summary", "summarize",
+}
+
+DOC_MATCH_STOPWORDS = {
+    "总结", "概括", "归纳", "摘要", "提炼", "梳理", "介绍", "一下", "这个",
+    "那个", "文档", "文件", "资料", "材料", "内容", "主要", "什么", "怎么",
+}
+
 GREETING_PATTERNS = {
     "hi", "hello", "hey", "你好", "您好", "早上好", "上午好",
     "中午好", "下午好", "晚上好", "在吗", "嗨", "哈喽",
@@ -91,6 +107,62 @@ META_PATTERNS = {"你是谁", "你能做什么", "你可以做什么", "你会�
 
 def _normalize_query(text: str) -> str:
     return re.sub(r"[\s，。！？!?,.;；：:、~`\"'“”‘’（）()\[\]{}<>《》]+", "", text.lower())
+
+
+def _doc_match_terms(text: str) -> List[str]:
+    """Extract useful terms for matching a query to active document names."""
+    normalized = _normalize_query(text)
+    terms = set(re.findall(r"[a-zA-Z0-9]{2,}", normalized))
+
+    try:
+        import jieba
+        for token in jieba.cut(text):
+            token = _normalize_query(token)
+            if len(token) >= 2:
+                terms.add(token)
+    except Exception:
+        pass
+
+    cjk = "".join(re.findall(r"[\u4e00-\u9fff]", normalized))
+    for size in (2, 3, 4):
+        for i in range(max(len(cjk) - size + 1, 0)):
+            terms.add(cjk[i:i + size])
+
+    return [t for t in terms if t and t not in DOC_MATCH_STOPWORDS]
+
+
+def _query_mentions_known_document(raw: str, normalized: str) -> bool:
+    """Return True when the query appears to name an active ingested document."""
+    try:
+        docs = database.list_documents(status="active", limit=200)
+    except Exception:
+        return False
+
+    query_terms = _doc_match_terms(raw)
+    if not query_terms:
+        return False
+
+    for doc in docs:
+        doc_name = " ".join(
+            filter(None, [doc.get("filename"), doc.get("title"), doc.get("category")])
+        )
+        doc_key = _normalize_query(doc_name)
+        if not doc_key:
+            continue
+
+        if len(normalized) >= 3 and (normalized in doc_key or doc_key in normalized):
+            return True
+
+        strong_hits = 0
+        for term in query_terms:
+            if term in doc_key:
+                if len(term) >= 3:
+                    return True
+                strong_hits += 1
+        if strong_hits >= 2:
+            return True
+
+    return False
 
 
 def _route_query(user_question: str) -> Optional[Dict[str, Any]]:
@@ -128,27 +200,31 @@ def _route_query(user_question: str) -> Optional[Dict[str, Any]]:
         }
 
     cjk_count = len(re.findall(r"[\u4e00-\u9fff]", raw))
-    has_keyword = any(k in lowered or k in raw for k in POLICY_KEYWORDS)
+    has_policy_keyword = any(k in lowered or k in raw for k in POLICY_KEYWORDS)
+    has_doc_type_keyword = any(k in lowered or k in raw for k in DOC_TYPE_KEYWORDS)
+    has_doc_action_keyword = any(k in lowered or k in raw for k in DOC_ACTION_KEYWORDS)
+    mentions_known_doc = _query_mentions_known_document(raw, normalized)
+    should_retrieve = has_policy_keyword or has_doc_type_keyword or mentions_known_doc
     alnum_count = len(re.findall(r"[a-zA-Z0-9]", raw))
 
-    if cjk_count == 0 and not has_keyword:
+    if cjk_count == 0 and not should_retrieve:
         return {
             "mode": "chat",
-            "answer": "请描述想咨询的制度问题，比如“年假有多少天”“迟到如何处理”或“采购金额超过 5000 元怎么审批”。",
-            "route": "non_policy",
+            "answer": "请描述想咨询的制度或已入库文档问题，比如“年假有多少天”“总结某篇论文”或“采购金额超过 5000 元怎么审批”。",
+            "route": "non_knowledge_base",
         }
 
-    if not has_keyword:
+    if not should_retrieve:
         return {
             "mode": "chat",
-            "answer": "请描述想咨询的制度问题，并带上具体制度关键词，例如年假、考勤、报销、采购、审批或薪酬福利。",
-            "route": "non_policy",
+            "answer": "请描述想咨询的制度或已入库文档问题，并带上具体关键词，例如年假、考勤、报销、采购、论文题目或文档名称。",
+            "route": "non_knowledge_base",
         }
 
-    if cjk_count < 2 and alnum_count < 4:
+    if cjk_count < 2 and alnum_count < 4 and not has_doc_action_keyword:
         return {
             "mode": "chat",
-            "answer": "问题有点短，请补充想咨询的制度场景或关键词。",
+            "answer": "问题有点短，请补充想咨询的制度场景、文档名称或关键词。",
             "route": "too_short",
         }
 
@@ -250,6 +326,17 @@ class PolicyRAGService:
           2. 三路召回（dense + sparse + exact）→ RRF融合 → CrossEncoder精排
           3. LLM 生成答案（或仅返回检索结果）
         """
+        routed = _route_query(user_question)
+        if routed:
+            return {
+                "query": user_question,
+                "mode": routed["mode"],
+                "answer": routed["answer"],
+                "sources": [],
+                "retrieval_required": False,
+                "retrieval_stats": {"route": routed["route"]},
+            }
+
         if not self._initialized:
             self.initialize()
 
@@ -263,16 +350,6 @@ class PolicyRAGService:
             "sources": [],
             "retrieval_required": True,
         }
-
-        routed = _route_query(user_question)
-        if routed:
-            result.update(
-                mode=routed["mode"],
-                answer=routed["answer"],
-                retrieval_required=False,
-                retrieval_stats={"route": routed["route"]},
-            )
-            return result
 
         # Step 1: 计算查询向量
         query_vector = self.embed_model.get_query_embedding(user_question)
