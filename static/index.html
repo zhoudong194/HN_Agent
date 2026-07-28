@@ -1057,6 +1057,13 @@ function render() {
     appEl.style.display   = "none";
     return;
   }
+
+  // 管理员访问 / 根路径时，跳转到管理界面
+  if (window.location.pathname === "/" && (Auth.user.is_admin || (Auth.user.roles || []).includes("tenant_admin"))) {
+    window.location.href = '/admin';
+    return;
+  }
+
   loginEl.style.display = "none";
   appEl.style.display   = "";
 
@@ -1106,8 +1113,12 @@ async function doLogin(email, password) {
     const data = await res.json();
     if (!res.ok) throw new Error(data.detail || ("HTTP " + res.status));
     saveAuth(data.access_token, data.user);
-    currentView = "chat";
-    render();
+    // 登录后根据角色跳转到对应页面
+    if (data.user.is_admin || (data.user.roles || []).includes("tenant_admin")) {
+      window.location.href = '/admin';
+    } else {
+      window.location.href = '/';
+    }
   } catch (e) {
     errEl.textContent = "登录失败：" + e.message;
     errEl.classList.add("shown");

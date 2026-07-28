@@ -1,0 +1,936 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>制度助手 - 问答</title>
+<style>
+  :root {
+    --bg-page:    #F8FAFC;
+    --bg-elev:    #FFFFFF;
+    --bg-subtle:  #F1F5F9;
+    --bg-hover:   #E2E8F0;
+    --border:     #E2E8F0;
+    --border-strong: #CBD5E1;
+    --text-1:     #0F172A;
+    --text-2:     #334155;
+    --text-3:     #64748B;
+    --text-4:     #94A3B8;
+    --brand:      #1E40AF;
+    --brand-soft: #EFF4FF;
+    --brand-ink:  #1E3A8A;
+    --ok:         #15803D;
+    --ok-soft:    #DCFCE7;
+    --warn:       #B45309;
+    --warn-soft:  #FEF3C7;
+    --err:        #B91C1C;
+    --err-soft:   #FEE2E2;
+    --r-sm: 6px;
+    --r-md: 8px;
+    --r-lg: 12px;
+    --font-ui:    -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Segoe UI", Helvetica, Arial, sans-serif;
+    --font-num:   "SF Mono", "JetBrains Mono", Menlo, Consolas, ui-monospace, monospace;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; height: 100%; }
+
+  body {
+    font-family: var(--font-ui);
+    color: var(--text-1);
+    font-size: 14px;
+    line-height: 1.55;
+    background: var(--bg-page);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* APP SHELL */
+  .app {
+    display: grid;
+    grid-template-rows: 56px 1fr;
+    height: 100vh;
+  }
+
+  /* TOPBAR */
+  header.topbar {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    align-items: center;
+    padding: 0 24px;
+    background: var(--bg-elev);
+    border-bottom: 1px solid var(--border);
+  }
+
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .brand-mark {
+    width: 8px;
+    height: 8px;
+    border-radius: 2px;
+    background: var(--brand);
+  }
+  .brand-name {
+    font-weight: 600;
+    font-size: 14px;
+    color: var(--text-1);
+    letter-spacing: -0.01em;
+  }
+  .brand-sep { color: var(--text-4); font-size: 13px; margin: 0 2px; }
+  .brand-context { color: var(--text-3); font-size: 13px; }
+
+  /* Topbar right */
+  .topbar-right {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .user-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 4px 4px 10px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    font-size: 12px;
+    color: var(--text-2);
+    background: var(--bg-elev);
+  }
+  .user-chip .avatar {
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    background: var(--brand);
+    color: #fff;
+    display: grid;
+    place-items: center;
+    font-size: 11px;
+    font-weight: 600;
+  }
+  .user-chip .logout {
+    appearance: none;
+    border: none;
+    background: transparent;
+    color: var(--text-4);
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 12px;
+    padding: 4px 8px;
+    border-radius: 999px;
+  }
+  .user-chip .logout:hover { background: var(--bg-subtle); color: var(--err); }
+
+  .status {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 5px 10px 5px 8px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    font-size: 12px;
+    color: var(--text-2);
+    background: var(--bg-elev);
+    font-variant-numeric: tabular-nums;
+  }
+  .status .dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--text-4);
+  }
+  .status.ok   { color: var(--ok);   border-color: rgba(21,128,61,0.25); background: var(--ok-soft); }
+  .status.ok   .dot { background: var(--ok); }
+  .status.warn { color: var(--warn); border-color: rgba(180,83,9,0.25); background: var(--warn-soft); }
+  .status.warn .dot { background: var(--warn); }
+  .status.err  { color: var(--err);  border-color: rgba(185,28,28,0.25); background: var(--err-soft); }
+  .status.err  .dot { background: var(--err); }
+
+  /* LAYOUT */
+  .layout {
+    display: grid;
+    grid-template-columns: 260px 1fr;
+    min-height: 0;
+  }
+
+  aside.sidebar {
+    background: var(--bg-elev);
+    border-right: 1px solid var(--border);
+    overflow-y: auto;
+    padding: 20px 16px 24px;
+  }
+
+  .group { margin-bottom: 24px; }
+  .group-label {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-3);
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    margin: 0 8px 8px;
+  }
+
+  .panel {
+    border: 1px solid var(--border);
+    border-radius: var(--r-md);
+    overflow: hidden;
+    background: var(--bg-elev);
+  }
+
+  .panel-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg-subtle);
+  }
+  .panel-head .title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-1);
+  }
+  .panel-head .count {
+    font-family: var(--font-num);
+    font-size: 11px;
+    color: var(--text-3);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Doc list */
+  .doc-item {
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border);
+    font-size: 13px;
+    color: var(--text-1);
+  }
+  .doc-item:last-child { border-bottom: none; }
+  .doc-item .name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .doc-item .meta {
+    font-family: var(--font-num);
+    font-size: 11px;
+    color: var(--text-3);
+    margin-top: 2px;
+  }
+
+  /* Suggested questions */
+  .suggested {
+    display: flex;
+    flex-direction: column;
+    padding: 4px;
+  }
+  .chip {
+    padding: 9px 12px;
+    border: none;
+    background: transparent;
+    color: var(--text-2);
+    font-family: inherit;
+    font-size: 13px;
+    text-align: left;
+    cursor: pointer;
+    border-radius: var(--r-sm);
+    transition: background 0.12s, color 0.12s;
+  }
+  .chip:hover { background: var(--bg-subtle); color: var(--text-1); }
+  .chip:active { background: var(--brand-soft); color: var(--brand); }
+
+  /* CHAT */
+  main.chat {
+    display: grid;
+    grid-template-rows: 1fr auto;
+    min-height: 0;
+    background: var(--bg-page);
+  }
+
+  .messages {
+    padding: 32px 0 24px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+  }
+
+  .msg-row { width: 100%; display: flex; }
+  .msg-row.user { justify-content: flex-end; }
+  .msg-row.bot  { justify-content: flex-start; }
+
+  .msg {
+    max-width: 720px;
+    width: fit-content;
+    padding: 10px 14px;
+    font-size: 14px;
+    line-height: 1.6;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+
+  .msg.user {
+    background: var(--brand);
+    color: #fff;
+    border-radius: var(--r-md) var(--r-md) 4px var(--r-md);
+  }
+
+  .msg.bot {
+    background: var(--bg-elev);
+    color: var(--text-1);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--brand);
+    border-radius: 4px var(--r-md) var(--r-md) var(--r-md);
+  }
+
+  .msg .meta-row {
+    margin-top: 12px;
+    padding-top: 10px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 10px;
+    align-items: center;
+  }
+  .pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 2px 8px;
+    font-size: 11px;
+    color: var(--text-3);
+    background: var(--bg-subtle);
+    border-radius: 999px;
+    font-family: var(--font-num);
+    font-variant-numeric: tabular-nums;
+  }
+  .pill.llm { color: var(--brand); background: var(--brand-soft); }
+  .pill.retrieval { color: var(--warn); background: var(--warn-soft); }
+  .pill .dot { width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
+
+  .sources {
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px dashed var(--border);
+    display: grid;
+    gap: 8px;
+  }
+  .source {
+    background: var(--bg-subtle);
+    border-radius: var(--r-sm);
+    padding: 10px 12px;
+    font-size: 13px;
+    line-height: 1.55;
+    color: var(--text-2);
+  }
+  .source .head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 4px;
+    color: var(--text-3);
+    font-size: 11px;
+    font-family: var(--font-num);
+  }
+  .source .head .name {
+    font-family: var(--font-ui);
+    font-weight: 600;
+    color: var(--text-2);
+    font-size: 12px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 60%;
+  }
+  .source pre {
+    margin: 0;
+    white-space: pre-wrap;
+    font-family: inherit;
+    color: var(--text-1);
+    font-size: 13px;
+  }
+
+  /* Typing dots */
+  .typing { display: inline-flex; gap: 4px; align-items: center; padding: 4px 0; }
+  .typing span {
+    width: 6px; height: 6px;
+    background: var(--text-4);
+    border-radius: 50%;
+    animation: blink 1.2s infinite both;
+  }
+  .typing span:nth-child(2) { animation-delay: 0.15s; }
+  .typing span:nth-child(3) { animation-delay: 0.3s; }
+  @keyframes blink {
+    0%, 80%, 100% { opacity: 0.25; transform: translateY(0); }
+    40%           { opacity: 1;    transform: translateY(-2px); }
+  }
+
+  /* COMPOSER */
+  .composer {
+    border-top: 1px solid var(--border);
+    background: var(--bg-elev);
+    padding: 14px 24px 18px;
+  }
+  .composer .row {
+    max-width: 880px;
+    margin: 0 auto;
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 8px;
+    align-items: end;
+  }
+  .composer textarea {
+    resize: none;
+    min-height: 40px;
+    max-height: 180px;
+    padding: 9px 12px;
+    border: 1px solid var(--border-strong);
+    border-radius: var(--r-md);
+    background: var(--bg-elev);
+    color: var(--text-1);
+    font-family: inherit;
+    font-size: 14px;
+    line-height: 1.5;
+    outline: none;
+    transition: border-color 0.15s, box-shadow 0.15s;
+  }
+  .composer textarea:focus {
+    border-color: var(--brand);
+    box-shadow: 0 0 0 3px var(--brand-soft);
+  }
+  .composer textarea::placeholder { color: var(--text-4); }
+  .composer .send { height: 40px; padding: 0 18px; }
+  .composer .hint {
+    max-width: 880px;
+    margin: 6px auto 0;
+    font-size: 11px;
+    color: var(--text-4);
+  }
+
+  /* EMPTY STATE */
+  .empty {
+    text-align: center;
+    padding: 80px 24px 60px;
+    color: var(--text-3);
+    max-width: 480px;
+    margin: 0 auto;
+  }
+  .empty .icon {
+    width: 36px;
+    height: 36px;
+    margin: 0 auto 16px;
+    border-radius: var(--r-md);
+    background: var(--brand-soft);
+    color: var(--brand);
+    display: grid;
+    place-items: center;
+    font-weight: 600;
+    font-size: 16px;
+  }
+  .empty h2 { font-size: 16px; font-weight: 600; color: var(--text-1); margin: 0 0 6px; }
+  .empty p { font-size: 13px; color: var(--text-3); margin: 0; line-height: 1.6; }
+
+  /* TOAST */
+  .toast {
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    z-index: 50;
+    background: var(--text-1);
+    color: #fff;
+    padding: 10px 14px;
+    border-radius: var(--r-md);
+    box-shadow: 0 8px 24px -8px rgba(15,23,42,0.25);
+    font-size: 13px;
+    transition: opacity 0.2s, transform 0.2s;
+    max-width: 360px;
+  }
+  .toast.success { border-left: 3px solid var(--ok); }
+  .toast.error   { border-left: 3px solid var(--err); }
+  .toast.hidden  { opacity: 0; transform: translateY(6px); pointer-events: none; }
+
+  /* LOGIN SCREEN */
+  #login-screen {
+    display: grid;
+    place-items: center;
+    height: 100vh;
+    background: var(--bg-page);
+  }
+  .login-card {
+    width: 360px;
+    background: var(--bg-elev);
+    border: 1px solid var(--border);
+    border-radius: var(--r-lg);
+    padding: 32px 28px;
+    box-shadow: 0 1px 0 var(--border);
+  }
+  .login-card .login-mark {
+    width: 10px;
+    height: 10px;
+    border-radius: 2px;
+    background: var(--brand);
+    margin-bottom: 18px;
+  }
+  .login-card h1 { font-size: 18px; font-weight: 600; color: var(--text-1); margin: 0 0 4px; letter-spacing: -0.01em; }
+  .login-card p.sub { font-size: 13px; color: var(--text-3); margin: 0 0 24px; }
+  .login-field { display: block; margin-bottom: 12px; }
+  .login-field label { display: block; font-size: 12px; color: var(--text-2); margin-bottom: 6px; font-weight: 500; }
+  .login-field input {
+    width: 100%;
+    padding: 9px 12px;
+    border: 1px solid var(--border-strong);
+    border-radius: var(--r-md);
+    background: var(--bg-elev);
+    color: var(--text-1);
+    font-family: inherit;
+    font-size: 14px;
+    outline: none;
+    transition: border-color 0.15s, box-shadow 0.15s;
+  }
+  .login-field input:focus { border-color: var(--brand); box-shadow: 0 0 0 3px var(--brand-soft); }
+  .login-error {
+    color: var(--err);
+    background: var(--err-soft);
+    border-radius: var(--r-sm);
+    padding: 8px 10px;
+    font-size: 12px;
+    margin-bottom: 12px;
+    display: none;
+  }
+  .login-error.shown { display: block; }
+  .login-submit { width: 100%; padding: 10px; font-size: 14px; }
+  .login-hint { margin-top: 16px; font-size: 11px; color: var(--text-4); text-align: center; line-height: 1.6; }
+  .login-hint code {
+    font-family: var(--font-num);
+    background: var(--bg-subtle);
+    padding: 1px 5px;
+    border-radius: 4px;
+    color: var(--text-2);
+  }
+
+  .btn {
+    appearance: none;
+    border: 1px solid var(--border-strong);
+    background: var(--bg-elev);
+    color: var(--text-1);
+    padding: 7px 12px;
+    border-radius: var(--r-sm);
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 500;
+    transition: background 0.15s, border-color 0.15s, color 0.15s;
+  }
+  .btn:hover:not(:disabled) { background: var(--bg-subtle); border-color: var(--text-4); }
+  .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .btn.primary { background: var(--brand); color: #fff; border-color: var(--brand); }
+  .btn.primary:hover:not(:disabled) { background: var(--brand-ink); border-color: var(--brand-ink); }
+
+  /* MOBILE */
+  @media (max-width: 860px) {
+    .layout { grid-template-columns: 1fr; }
+    aside.sidebar { border-right: none; border-bottom: 1px solid var(--border); max-height: 40vh; }
+    header.topbar { padding: 0 16px; }
+    .messages { padding: 20px 12px; }
+    .composer { padding: 12px 16px 14px; }
+    .login-card { width: 92vw; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .typing span { animation: none; opacity: 0.5; }
+  }
+</style>
+</head>
+<body>
+
+<!-- LOGIN SCREEN -->
+<div id="login-screen" style="display:none;">
+  <form class="login-card" id="login-form" autocomplete="off">
+    <div class="login-mark"></div>
+    <h1>登录制度助手</h1>
+    <p class="sub">请用您的工作邮箱进入。</p>
+    <div class="login-error" id="login-error"></div>
+    <div class="login-field">
+      <label for="login-email">邮箱</label>
+      <input id="login-email" type="email" required autocomplete="username" />
+    </div>
+    <div class="login-field">
+      <label for="login-password">密码</label>
+      <input id="login-password" type="password" required autocomplete="current-password" minlength="1" />
+    </div>
+    <button type="submit" class="btn primary login-submit" id="login-submit">登录</button>
+    <p class="login-hint">普通用户请向管理员申请账号</p>
+  </form>
+</div>
+
+<!-- APP (shown when authenticated) -->
+<div id="app" class="app" style="display:none;">
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true"></span>
+      <span class="brand-name">制度助手</span>
+      <span class="brand-sep">·</span>
+      <span class="brand-context" id="header-sub">载入中…</span>
+    </div>
+    <div class="topbar-right">
+      <div id="status-pill" class="status">
+        <span class="dot"></span><span id="status-text">检测中</span>
+      </div>
+      <div class="user-chip">
+        <span class="avatar" id="user-avatar">U</span>
+        <span id="user-name">…</span>
+        <button class="logout" id="logout-btn" title="退出登录">退出</button>
+      </div>
+    </div>
+  </header>
+
+  <div class="layout">
+    <aside class="sidebar">
+      <div class="group">
+        <div class="group-label">知识库</div>
+        <div class="panel">
+          <div class="panel-head">
+            <span class="title">已归档文档</span>
+            <span class="count" id="doc-count">—</span>
+          </div>
+          <div id="doc-list"></div>
+        </div>
+      </div>
+
+      <div class="group">
+        <div class="group-label">常见问题</div>
+        <div class="panel">
+          <div class="suggested">
+            <button class="chip" data-q="请问我有多少天年假？">年假天数</button>
+            <button class="chip" data-q="迟到如何处理？">迟到处理</button>
+            <button class="chip" data-q="加班工资如何计算？">加班工资</button>
+            <button class="chip" data-q="出差住宿费报销标准？">差旅报销</button>
+            <button class="chip" data-q="采购流程是怎样的？">采购流程</button>
+            <button class="chip" data-q="办公用品如何申领？">办公用品</button>
+          </div>
+        </div>
+      </div>
+    </aside>
+
+    <main class="chat">
+      <div id="messages" class="messages">
+        <div class="empty">
+          <div class="icon">助</div>
+          <h2>开始一次问询</h2>
+          <p>输入问题后，本助手将依据已归档的制度文档为您引述相关条文，并标明来源。</p>
+        </div>
+      </div>
+
+      <div class="composer">
+        <div class="row">
+          <textarea id="question" rows="1"
+                    placeholder="输入您的问题…  (Enter 发送 · Shift+Enter 换行)"></textarea>
+          <button id="send-btn" class="btn primary send">发送</button>
+        </div>
+        <div class="hint">回答由 AI 基于知识库生成，请以原文制度为准。</div>
+      </div>
+    </main>
+  </div>
+</div>
+
+<div id="toast" class="toast hidden"></div>
+
+<script>
+"use strict";
+
+/* Auth state */
+const TOKEN_KEY = "hn_agent_token";
+const USER_KEY  = "hn_agent_user";
+
+const Auth = {
+  token: localStorage.getItem(TOKEN_KEY) || null,
+  user:  JSON.parse(localStorage.getItem(USER_KEY) || "null"),
+};
+
+function saveAuth(token, user) {
+  Auth.token = token;
+  Auth.user  = user;
+  localStorage.setItem(TOKEN_KEY, token);
+  localStorage.setItem(USER_KEY, JSON.stringify(user));
+}
+function clearAuth() {
+  Auth.token = null;
+  Auth.user  = null;
+  localStorage.removeItem(TOKEN_KEY);
+  localStorage.removeItem(USER_KEY);
+}
+
+/* 检查是否为管理员，如果是则跳转到管理界面 */
+function checkAdminAndRedirect() {
+  if (Auth.user && (Auth.user.is_admin || (Auth.user.roles || []).includes("tenant_admin"))) {
+    window.location.href = '/admin';
+    return true;
+  }
+  return false;
+}
+
+async function api(path, opts = {}) {
+  const headers = Object.assign({}, opts.headers || {});
+  if (Auth.token) headers["Authorization"] = "Bearer " + Auth.token;
+  if (opts.json !== undefined) {
+    headers["Content-Type"] = "application/json; charset=utf-8";
+    opts.body = JSON.stringify(opts.json);
+    delete opts.json;
+  }
+  const res = await fetch(path, Object.assign({}, opts, { headers }));
+  if (res.status === 401) {
+    clearAuth();
+    render();
+    return Promise.reject(new Error("未登录或会话已过期"));
+  }
+  return res;
+}
+
+function $(id) { return document.getElementById(id); }
+
+function render() {
+  const loginEl = $("login-screen");
+  const appEl   = $("app");
+  if (!Auth.token || !Auth.user) {
+    loginEl.style.display = "";
+    appEl.style.display   = "none";
+    return;
+  }
+
+  // 管理员跳转到管理界面
+  if (checkAdminAndRedirect()) return;
+
+  loginEl.style.display = "none";
+  appEl.style.display   = "";
+
+  $("user-name").textContent = Auth.user.display_name || Auth.user.email;
+  $("user-avatar").textContent = (Auth.user.display_name || Auth.user.email || "U")[0].toUpperCase();
+
+  refreshStatus();
+  loadDocs();
+}
+
+/* Login */
+async function doLogin(email, password) {
+  const errEl = $("login-error");
+  errEl.classList.remove("shown");
+  errEl.textContent = "";
+  try {
+    const res = await fetch("/api/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json; charset=utf-8" },
+      body: JSON.stringify({ email, password }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || ("HTTP " + res.status));
+    saveAuth(data.access_token, data.user);
+    render();  // render 会自动检查是否管理员并跳转
+  } catch (e) {
+    errEl.textContent = "登录失败：" + e.message;
+    errEl.classList.add("shown");
+  }
+}
+
+$("login-form").addEventListener("submit", (e) => {
+  e.preventDefault();
+  doLogin($("login-email").value.trim(), $("login-password").value);
+});
+
+$("logout-btn").addEventListener("click", async () => {
+  try { await fetch("/api/auth/logout", { method: "POST" }); } catch (e) {}
+  clearAuth();
+  render();
+});
+
+/* Chat view */
+const messagesEl = $("messages");
+const questionEl = $("question");
+const sendBtn    = $("send-btn");
+const statusPill = $("status-pill");
+const headerSub  = $("header-sub");
+const docCount   = $("doc-count");
+
+let busy = false;
+
+function toast(msg, type = "success") {
+  const t = $("toast");
+  t.textContent = msg;
+  t.className = "toast " + type;
+  setTimeout(() => t.classList.add("hidden"), 2400);
+}
+
+async function refreshStatus() {
+  try {
+    const res = await fetch("/api/health");
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    const data = await res.json();
+    const cls = data.llm_available ? "ok" : "warn";
+    statusPill.className = "status " + cls;
+    $("status-text").textContent = data.llm_available ? "LLM 在线" : "仅检索";
+    headerSub.textContent = data.embedding_model + " · " + (data.collection || data.vector_store);
+  } catch (e) {
+    statusPill.className = "status err";
+    $("status-text").textContent = "后端离线";
+    headerSub.textContent = "无法连接服务";
+  }
+}
+
+async function loadDocs() {
+  const list = $("doc-list");
+  list.innerHTML = '<div style="padding:12px;color:var(--text-4);font-size:12px;">载入中…</div>';
+  try {
+    const res = await api("/api/documents");
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    const docs = await res.json();
+    docCount.textContent = docs.length;
+    if (!docs.length) {
+      list.innerHTML = '<div style="padding:16px 12px;color:var(--text-4);font-size:12px;">暂无文档</div>';
+      return;
+    }
+    list.innerHTML = "";
+    docs.forEach((d) => {
+      const size = d.size_bytes ?? d.file_size ?? 0;
+      const kb = (size / 1024).toFixed(1);
+      const el = document.createElement("div");
+      el.className = "doc-item";
+      el.innerHTML = '<div class="name"></div><div class="meta"></div>';
+      el.querySelector(".name").textContent = d.filename;
+      el.querySelector(".meta").textContent = d.file_type.toUpperCase() + " · " + kb + " KB";
+      list.appendChild(el);
+    });
+  } catch (e) {
+    list.innerHTML = '<div style="padding:12px;color:var(--err);font-size:12px;">载入失败</div>';
+  }
+}
+
+function addMessage(role, content, opts = {}) {
+  const empty = messagesEl.querySelector(".empty");
+  if (empty) empty.remove();
+
+  const row = document.createElement("div");
+  row.className = "msg-row " + role;
+  const el = document.createElement("div");
+  el.className = "msg " + role;
+  el.textContent = content;
+  row.appendChild(el);
+
+  if (opts.retrieval_required && (opts.mode || (opts.sources && opts.sources.length))) {
+    const meta = document.createElement("div");
+    meta.className = "meta-row";
+    if (opts.mode) {
+      const pill = document.createElement("span");
+      pill.className = "pill " + (opts.mode === "llm" ? "llm" : "retrieval");
+      pill.innerHTML = '<span class="dot"></span>' + (opts.mode === "llm" ? "AI 引述" : "原始条文");
+      meta.appendChild(pill);
+    }
+    if (opts.sources && opts.sources.length) {
+      const n = document.createElement("span");
+      n.className = "pill";
+      n.textContent = opts.sources.length + " 项引用";
+      meta.appendChild(n);
+    }
+    el.appendChild(meta);
+
+    if (opts.sources && opts.sources.length) {
+      const list = document.createElement("div");
+      list.className = "sources";
+      opts.sources.forEach((src, i) => {
+        const s = document.createElement("div");
+        s.className = "source";
+        const head = document.createElement("div");
+        head.className = "head";
+        const name = document.createElement("span");
+        name.className = "name";
+        name.textContent = "来源 " + (i + 1);
+        const score = document.createElement("span");
+        score.textContent = src.score != null ? "score " + src.score.toFixed(3) : "";
+        head.appendChild(name);
+        head.appendChild(score);
+        const body = document.createElement("pre");
+        body.textContent = src.text.slice(0, 800) + (src.text.length > 800 ? "\n…" : "");
+        s.appendChild(head);
+        s.appendChild(body);
+        list.appendChild(s);
+      });
+      el.appendChild(list);
+    }
+  }
+
+  messagesEl.appendChild(row);
+  messagesEl.scrollTop = messagesEl.scrollHeight;
+}
+
+function addTyping() {
+  const empty = messagesEl.querySelector(".empty");
+  if (empty) empty.remove();
+  const row = document.createElement("div");
+  row.className = "msg-row bot";
+  row.id = "typing-msg";
+  row.innerHTML = '<div class="msg bot"><span class="typing"><span></span><span></span><span></span></span></div>';
+  messagesEl.appendChild(row);
+  messagesEl.scrollTop = messagesEl.scrollHeight;
+}
+
+function removeTyping() {
+  const t = $("typing-msg");
+  if (t) t.remove();
+}
+
+async function sendQuestion(text) {
+  if (busy) return;
+  if (!text || !text.trim()) return;
+  busy = true;
+  sendBtn.disabled = true;
+  addMessage("user", text);
+  questionEl.value = "";
+  questionEl.style.height = "auto";
+  addTyping();
+  try {
+    const res = await api("/api/query", {
+      method: "POST",
+      json: { question: text, top_k: 5 },
+    });
+    const data = await res.json();
+    removeTyping();
+    if (!res.ok) {
+      addMessage("bot", "请求失败: " + (data.detail || res.status));
+    } else {
+      addMessage("bot", data.answer, {
+        mode: data.mode,
+        sources: data.sources,
+        retrieval_required: data.retrieval_required,
+      });
+    }
+  } catch (e) {
+    removeTyping();
+    addMessage("bot", "网络错误: " + e.message);
+  } finally {
+    busy = false;
+    sendBtn.disabled = false;
+  }
+}
+
+function autoResize(el) {
+  el.style.height = "auto";
+  el.style.height = Math.min(el.scrollHeight, 180) + "px";
+}
+questionEl.addEventListener("input", () => autoResize(questionEl));
+questionEl.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && !e.shiftKey) {
+    e.preventDefault();
+    sendQuestion(questionEl.value);
+  }
+});
+sendBtn.addEventListener("click", () => sendQuestion(questionEl.value));
+
+document.querySelectorAll(".chip").forEach((chip) => {
+  chip.addEventListener("click", () => sendQuestion(chip.dataset.q));
+});
+
+/* Bootstrap */
+render();
+</script>
+</body>
+</html>

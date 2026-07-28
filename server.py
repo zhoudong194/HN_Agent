@@ -176,7 +176,14 @@ def _reset_rag_service():
 
 
 @app.get("/", include_in_schema=False)
-async def index():
+async def user_app():
+    """普通用户入口"""
+    return FileResponse(str(STATIC_DIR / "user_view.html"))
+
+
+@app.get("/admin", include_in_schema=False)
+async def admin_app():
+    """管理员入口"""
     return FileResponse(str(STATIC_DIR / "index.html"))
 
 
