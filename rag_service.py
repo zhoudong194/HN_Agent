@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import io
 import logging
+import re
 import sys
 from typing import Any, Dict, List, Optional
 
@@ -65,6 +66,93 @@ SYSTEM_PROMPT = """你是一个企业规章制度咨询助手，基于阿里云�
 用户问题：{query}
 
 回答："""
+
+
+POLICY_KEYWORDS = {
+    "制度", "规章", "条款", "流程", "标准", "规定", "办法", "规则",
+    "年假", "请假", "假期", "休假", "病假", "事假", "调休", "加班",
+    "考勤", "迟到", "早退", "旷工", "全勤",
+    "工资", "薪酬", "福利", "社保", "五险", "一金", "餐补",
+    "报销", "差旅", "住宿", "交通", "发票", "财务",
+    "采购", "付款", "预付款", "供应商", "审批", "申请",
+    "办公用品", "设备", "入职", "离职", "合同", "人力", "hr",
+    "policy", "leave", "vacation", "reimbursement", "expense",
+    "purchase", "procurement", "attendance", "overtime", "salary",
+    "benefit", "approval", "invoice",
+}
+
+GREETING_PATTERNS = {
+    "hi", "hello", "hey", "你好", "您好", "早上好", "上午好",
+    "中午好", "下午好", "晚上好", "在吗", "嗨", "哈喽",
+}
+THANKS_PATTERNS = {"谢谢", "感谢", "多谢", "thanks", "thank you", "再见", "拜拜", "bye"}
+META_PATTERNS = {"你是谁", "你能做什么", "你可以做什么", "你会什么", "介绍一下你", "help", "帮助"}
+
+
+def _normalize_query(text: str) -> str:
+    return re.sub(r"[\s，。！？!?,.;；：:、~`\"'“”‘’（）()\[\]{}<>《》]+", "", text.lower())
+
+
+def _route_query(user_question: str) -> Optional[Dict[str, Any]]:
+    """Handle non-knowledge-base intents before retrieval."""
+    raw = user_question.strip()
+    normalized = _normalize_query(raw)
+    lowered = raw.lower().strip()
+
+    if not normalized:
+        return {
+            "mode": "chat",
+            "answer": "请描述一下你想咨询的公司制度问题，比如年假、考勤、报销或采购流程。",
+            "route": "empty",
+        }
+
+    if normalized in GREETING_PATTERNS or lowered in GREETING_PATTERNS:
+        return {
+            "mode": "chat",
+            "answer": "您好！请问有什么关于公司规章制度的问题需要咨询？",
+            "route": "greeting",
+        }
+
+    if normalized in THANKS_PATTERNS or lowered in THANKS_PATTERNS:
+        return {
+            "mode": "chat",
+            "answer": "不客气。有制度、流程、报销、考勤等问题时可以继续问我。",
+            "route": "courtesy",
+        }
+
+    if normalized in META_PATTERNS or lowered in META_PATTERNS:
+        return {
+            "mode": "chat",
+            "answer": "我是企业规章制度咨询助手，可以根据已入库的制度文档回答年假、考勤、报销、采购、审批流程等问题，并给出相关引用来源。",
+            "route": "meta",
+        }
+
+    cjk_count = len(re.findall(r"[\u4e00-\u9fff]", raw))
+    has_keyword = any(k in lowered or k in raw for k in POLICY_KEYWORDS)
+    alnum_count = len(re.findall(r"[a-zA-Z0-9]", raw))
+
+    if cjk_count == 0 and not has_keyword:
+        return {
+            "mode": "chat",
+            "answer": "请描述想咨询的制度问题，比如“年假有多少天”“迟到如何处理”或“采购金额超过 5000 元怎么审批”。",
+            "route": "non_policy",
+        }
+
+    if not has_keyword:
+        return {
+            "mode": "chat",
+            "answer": "请描述想咨询的制度问题，并带上具体制度关键词，例如年假、考勤、报销、采购、审批或薪酬福利。",
+            "route": "non_policy",
+        }
+
+    if cjk_count < 2 and alnum_count < 4:
+        return {
+            "mode": "chat",
+            "answer": "问题有点短，请补充想咨询的制度场景或关键词。",
+            "route": "too_short",
+        }
+
+    return None
 
 
 class PolicyRAGService:
@@ -173,7 +261,18 @@ class PolicyRAGService:
             "mode": "llm" if self._has_api_key else "retrieval_only",
             "answer": "",
             "sources": [],
+            "retrieval_required": True,
         }
+
+        routed = _route_query(user_question)
+        if routed:
+            result.update(
+                mode=routed["mode"],
+                answer=routed["answer"],
+                retrieval_required=False,
+                retrieval_stats={"route": routed["route"]},
+            )
+            return result
 
         # Step 1: 计算查询向量
         query_vector = self.embed_model.get_query_embedding(user_question)
@@ -196,7 +295,7 @@ class PolicyRAGService:
             return result
 
         # Step 3: LLM 生成
-        context_blocks = [hit["text"] for hit in hits]
+        context_blocks = [hit["text"] for hit in retrieval.sources]
         context = "\n\n---\n\n".join(context_blocks)
 
         if self._has_api_key and self._llm_client:

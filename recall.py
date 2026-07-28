@@ -40,6 +40,8 @@ _reranker: Optional[Any] = None
 MIN_TEXT_LEN = 30          # drop chunks shorter than this
 MIN_CJK_RATIO = 0.15       # at least 15% Chinese characters
 MIN_RETRIEVE_SCORE = 0.35  # cosine similarity floor (after RRF)
+MIN_DENSE_SCORE = 0.45     # filter weak dense matches before fusion
+MIN_DENSE_ONLY_SCORE = 0.55
 
 
 def _quality_pass(text: str) -> bool:
@@ -145,12 +147,17 @@ def bm25_search(query: str, top_k: int = 20) -> List[Tuple[str, float]]:
         tokens = _normalize_for_bm25(query).split()
 
     scores = _bm25_index.get_scores(tokens)
-    top_indices = np.argsort(scores)[::-1][:top_k]
+    top_indices = np.argsort(scores)[::-1]
 
     results = []
     for idx in top_indices:
+        score = float(scores[idx])
+        if score <= 0:
+            break
         sid, _ = _bm25_corpus[idx]
-        results.append((sid, float(scores[idx])))
+        results.append((sid, score))
+        if len(results) >= top_k:
+            break
     return results
 
 
@@ -166,7 +173,7 @@ def dense_search(query_vector: List[float], top_k: int = 20) -> List[Tuple[str, 
     results = database.search_similar_chunks(
         query_vector=query_vector,
         top_k=top_k,
-        min_score=0.0,
+        min_score=MIN_DENSE_SCORE,
     )
     return [(r["id"], r["score"]) for r in results]
 
@@ -252,7 +259,11 @@ def rrf_fuse(
 # Cross-Encoder Reranker
 # ----------------------------------------------------------------------
 def _get_reranker():
-    """Lazy-load the bge-reranker model from local dir or HF Hub."""
+    """Lazy-load the bge-reranker model from local dir or HF Hub.
+
+    加载顺序：本地权重 → HF Hub。
+    如果两者都失败，抛错（让 rerank() 走降级路径）。
+    """
     global _reranker
     if _reranker is not None:
         return _reranker
@@ -260,46 +271,54 @@ def _get_reranker():
     import logging
     log = logging.getLogger(__name__)
 
-    # Try local directory first (populated by curl downloads)
+    # Try local directory first
     local_path = r"D:\Acode\HN_Agent\models\bge-reranker-base"
-    model_file = Path(local_path) / "pytorch_model.bin"
-    onnx_file = Path(local_path) / "onnx" / "model.onnx"
+    pytorch_file = Path(local_path) / "pytorch_model.bin"
+    onnx_dir = Path(local_path) / "onnx"
+    onnx_file = onnx_dir / "model.onnx"
 
-    if onnx_file.exists() and onnx_file.stat().st_size > 10_000_000:
-        log.info("Loading bge-reranker-base from local ONNX...")
+    # Check local weights
+    has_pytorch = pytorch_file.exists() and pytorch_file.stat().st_size > 10_000_000
+    has_onnx = False
+    if onnx_file.exists():
         try:
-            from sentence_transformers import CrossEncoder
-            _reranker = CrossEncoder(str(onnx_file), model_kwargs={"model_type": "onnx"})
-            log.info("Reranker loaded from ONNX")
-            return _reranker
-        except Exception as e:
-            log.warning("ONNX load failed: %s", e)
+            has_onnx = onnx_file.stat().st_size > 10_000_000
+        except OSError:
+            pass
 
-    # Try PyTorch model file
-    if model_file.exists() and model_file.stat().st_size > 10_000_000:
-        log.info("Loading bge-reranker-base from local PyTorch...")
-        try:
-            from sentence_transformers import CrossEncoder
-            _reranker = CrossEncoder(
-                local_path,
-                max_length=512,
-                trust_remote_code=True,
-            )
-            log.info("Reranker loaded from local PyTorch")
-            return _reranker
-        except Exception as e:
-            log.warning("Local PyTorch load failed: %s", e)
+    if has_pytorch or has_onnx:
+        if has_onnx:
+            log.info("Loading bge-reranker-base from local ONNX...")
+            try:
+                from sentence_transformers import CrossEncoder
+                _reranker = CrossEncoder(str(onnx_file))
+                log.info("Reranker loaded from ONNX")
+                return _reranker
+            except Exception as e:
+                log.warning("ONNX load failed: %s", e)
 
-    # Download from HF Hub
-    log.info("Loading bge-reranker-base from HuggingFace Hub...")
-    from sentence_transformers import CrossEncoder
-    _reranker = CrossEncoder(
-        "BAAI/bge-reranker-base",
-        max_length=512,
-        trust_remote_code=True,
-    )
-    log.info("Reranker loaded from Hub")
-    return _reranker
+        if has_pytorch:
+            log.info("Loading bge-reranker-base from local PyTorch...")
+            try:
+                from sentence_transformers import CrossEncoder
+                _reranker = CrossEncoder(
+                    local_path,
+                    max_length=512,
+                )
+                log.info("Reranker loaded from local PyTorch")
+                return _reranker
+            except Exception as e:
+                log.warning("Local PyTorch load failed: %s", e)
+    else:
+        log.warning(
+            "Reranker weights not found locally at %s "
+            "(pytorch_model.bin/onnx missing). Skipping reranker.",
+            local_path,
+        )
+
+    # No reranker available — set a flag so we don't retry
+    _reranker = False
+    return None
 
 
 def rerank(query: str, chunk_ids: List[str], top_n: int = 5) -> List[Dict[str, Any]]:
@@ -343,6 +362,8 @@ def rerank(query: str, chunk_ids: List[str], top_n: int = 5) -> List[Dict[str, A
     # Try cross-encoder reranking; fall back to fusion order on failure
     try:
         reranker = _get_reranker()
+        if reranker is None:
+            raise RuntimeError("Reranker not available")
         cross_scores = reranker.predict(pairs, show_progress_bar=False)
         reranked = []
         for cid, cs in zip(valid_ids, cross_scores):
@@ -359,6 +380,7 @@ def rerank(query: str, chunk_ids: List[str], top_n: int = 5) -> List[Dict[str, A
                 "doc_filename": r.get("filename"),
                 "doc_category": r.get("category"),
                 "score": float(cs),
+                "rrf_score": r.get("rrf_score"),
             })
         reranked.sort(key=lambda x: x["score"], reverse=True)
         return reranked[:top_n]
@@ -382,7 +404,8 @@ def rerank(query: str, chunk_ids: List[str], top_n: int = 5) -> List[Dict[str, A
                 "chunk_index": r.get("chunk_index"),
                 "doc_filename": r.get("filename"),
                 "doc_category": r.get("category"),
-                "score": 1.0 - rank * 0.001,  # neutral decay score
+                "score": None,
+                "rrf_score": r.get("rrf_score"),
             })
         return results
 
@@ -424,15 +447,46 @@ def multi_way_retrieve(
     dense_ids = {cid for cid, _ in dense_hits}
     sparse_ids = {cid for cid, _ in sparse_hits}
 
+    if dense_hits and not sparse_hits and not exact_hits and dense_hits[0][1] < MIN_DENSE_ONLY_SCORE:
+        return RetrievalResult(
+            sources=[],
+            retrieval_stats={
+                "dense_count": len(dense_ids),
+                "sparse_count": 0,
+                "exact_count": 0,
+                "fused_candidates": 0,
+                "after_rerank": 0,
+                "after_filter": 0,
+                "rejected_reason": "dense_only_low_score",
+                "latency_ms": round((time.time() - t0) * 1000, 1),
+            },
+        )
+
     # 2. RRF 融合
     fused = rrf_fuse(dense_hits, sparse_hits, exact_hits, k=60)
     fused_ids = [cid for cid, _ in fused]
+    fused_score_map = {cid: score for cid, score in fused}
 
     # 3. Cross-Encoder 精排
     final = rerank(query, fused_ids, top_n=max(top_k * 2, 10))
 
+    for item in final:
+        cid = item.get("id")
+        if cid in fused_score_map:
+            item["rrf_score"] = fused_score_map[cid]
+
     # 4. 质量门：min_score 过滤
-    filtered = [r for r in final if r["score"] >= min_score][:top_k]
+    filtered = []
+    for r in final:
+        score = r.get("score")
+        fallback_score = r.get("rrf_score")
+        effective_score = score if score is not None else fallback_score
+        if effective_score is None:
+            continue
+        if effective_score >= min_score:
+            filtered.append(r)
+        if len(filtered) >= top_k:
+            break
 
     stats = {
         "dense_count": len(dense_ids),

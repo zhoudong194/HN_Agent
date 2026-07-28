@@ -17,6 +17,7 @@ import io
 import os
 import sys
 import uuid
+from dataclasses import dataclass
 from pathlib import Path
 from typing import List
 
@@ -28,10 +29,11 @@ import config
 # Document parsing
 import docx
 import docx2txt
-import textract
+try:
+    import textract
+except ImportError:  # optional; old .doc parsing is best-effort
+    textract = None
 from llama_index.core import Document
-from llama_index.core.node_parser import SentenceSplitter
-
 # Embedding model
 from llama_index.embeddings.huggingface import HuggingFaceEmbedding
 
@@ -44,31 +46,33 @@ EMBED_MODEL_NAME = config.EMBED_MODEL_NAME
 EMBED_DIM = config.EMBED_DIM
 
 
+@dataclass
+class StructuredChunk:
+    text: str
+    metadata: dict
+
+    def get_text(self) -> str:
+        return self.text
+
+
 def doc_to_text(file_path: str) -> str:
     """Extract text from legacy .doc file. Uses textract first, falls back to docx2txt."""
-    try:
-        text = textract.process(file_path, extension="doc", encoding="utf-8")
-        decoded = text.decode("utf-8", errors="replace")
-        # Check for garbled text (high '?' ratio after decode)
-        q_ratio = decoded.count("?") / max(len(decoded), 1)
-        if q_ratio > 0.1:
-            raise ValueError(f"High question-mark ratio: {q_ratio:.1%}")
-        return decoded
-    except Exception:
-        # Fallback: try docx2txt on the .doc file by converting path
+    if textract is not None:
         try:
-            # docx2txt only works with .docx, but we can try reading as binary
-            import subprocess
-            result = subprocess.run(
-                ["python", "-c",
-                 f"import docx2txt; print(docx2txt.process(r'{file_path}'))"],
-                capture_output=True, text=True, encoding="utf-8",
-                timeout=30,
-            )
-            if result.returncode == 0 and result.stdout.strip():
-                return result.stdout
+            text = textract.process(file_path, extension="doc", encoding="utf-8")
+            decoded = text.decode("utf-8", errors="replace")
+            q_ratio = decoded.count("?") / max(len(decoded), 1)
+            if q_ratio > 0.1:
+                raise ValueError(f"High question-mark ratio: {q_ratio:.1%}")
+            return decoded
         except Exception:
             pass
+
+    # Fallback: try docx2txt on the file. This only works for OOXML-like files.
+    try:
+        text = docx2txt.process(file_path)
+        return text or ""
+    except Exception:
         return ""
 
 
@@ -159,19 +163,100 @@ def scan_data_directory(data_dir: str) -> List[tuple[Path, Document]]:
     return results
 
 
-def create_semantic_chunks(documents: List[Document]) -> List:
+def _split_long_text(text: str, max_chars: int = 700, overlap: int = 100) -> List[str]:
+    text = text.strip()
+    if not text:
+        return []
+    if len(text) <= max_chars:
+        return [text]
+
+    chunks: List[str] = []
+    step = max(1, max_chars - overlap)
+    start = 0
+    while start < len(text):
+        end = min(len(text), start + max_chars)
+        chunk = text[start:end].strip()
+        if chunk:
+            chunks.append(chunk)
+        if end >= len(text):
+            break
+        start += step
+    return chunks
+
+
+def create_semantic_chunks(documents: List[Document]) -> List[StructuredChunk]:
     """
-    Parse documents into semantic chunks using SentenceSplitter.
-    Chunk size = 300 chars, overlap = 60 chars.
-    Headings are included in the text as metadata context.
+    Structure-first chunking for policy documents.
+
+    Preferred hierarchy:
+      title → chapter → article → paragraph/list/table
     """
-    parser = SentenceSplitter(
-        chunk_size=300,
-        chunk_overlap=60,
-        include_metadata=True,
-    )
-    nodes = parser.get_nodes_from_documents(documents)
-    return nodes
+    heading_re = re.compile(r"^(#{1,6})\s+(.*)$")
+    chunks: List[StructuredChunk] = []
+
+    for doc in documents:
+        source_file = doc.metadata.get("source_file")
+        file_stem = Path(source_file).stem if source_file else "document"
+        raw_text = getattr(doc, "text", None) or doc.get_content()
+        lines = raw_text.splitlines()
+
+        heading_stack = [file_stem, None, None]
+        section_lines: List[str] = []
+        chunk_index = 0
+
+        def flush_section():
+            nonlocal chunk_index
+            body = "\n".join(line for line in section_lines if line is not None).strip()
+            if not body:
+                return
+
+            header_1 = heading_stack[0] or file_stem
+            header_2 = heading_stack[1]
+            header_3 = heading_stack[2]
+            for part in _split_long_text(body):
+                chunks.append(
+                    StructuredChunk(
+                        text=part,
+                        metadata={
+                            "source_file": source_file,
+                            "file_type": doc.metadata.get("file_type"),
+                            "header_1": header_1,
+                            "header_2": header_2,
+                            "header_3": header_3,
+                            "chunk_index": chunk_index,
+                        },
+                    )
+                )
+                chunk_index += 1
+
+        for line in lines:
+            match = heading_re.match(line.strip())
+            if match:
+                flush_section()
+                hashes, title = match.groups()
+                level = min(len(hashes), 6)
+                if level == 1:
+                    heading_stack[0] = title.strip()
+                    heading_stack[1] = None
+                    heading_stack[2] = None
+                elif level == 2:
+                    heading_stack[1] = title.strip()
+                    heading_stack[2] = None
+                elif level == 3:
+                    heading_stack[2] = title.strip()
+                else:
+                    heading_stack[2] = title.strip()
+                section_lines = []
+                continue
+
+            if line.strip():
+                section_lines.append(line.rstrip())
+            elif section_lines and section_lines[-1] != "":
+                section_lines.append("")
+
+        flush_section()
+
+    return chunks
 
 
 def setup_embedding_model() -> HuggingFaceEmbedding:
@@ -204,7 +289,7 @@ def ingest_to_database():
         sys.exit(1)
     print(f"  ✓ Found {len(file_doc_pairs)} files")
 
-    # Step 3: Semantic chunking
+    # Step 3: Structure-first chunking
     print("\n[3/5] Creating semantic chunks...")
     documents = [doc for _, doc in file_doc_pairs]
     nodes = create_semantic_chunks(documents)
@@ -233,10 +318,7 @@ def ingest_to_database():
         print(f"  + [new] {file_path.name} (id={doc_id[:8]}...)")
 
         # Collect all nodes for this document
-        doc_nodes = [
-            n for n in nodes
-            if n.metadata.get("source_file") == str(file_path)
-        ]
+        doc_nodes = [n for n in nodes if n.metadata.get("source_file") == str(file_path)]
 
         chunk_records = []
         skipped = 0

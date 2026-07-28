@@ -63,11 +63,11 @@ META_DB_PATH: str = _get("META_DB_PATH", "./rag_meta.db")
 # ----------------------------------------------------------------------
 # PostgreSQL + pgvector
 # ----------------------------------------------------------------------
-DB_HOST: str = _get("DB_HOST", "localhost")
-DB_PORT: int = int(_get("DB_PORT", "5433"))
-DB_NAME: str = _get("DB_NAME", "ragdb")
-DB_USER: str = _get("DB_USER", "raguser")
-DB_PASSWORD: str = _get("DB_PASSWORD", "ragpass")
+DB_HOST: str = _get("DB_HOST", _get("POSTGRES_HOST", "localhost"))
+DB_PORT: int = int(_get("DB_PORT", _get("POSTGRES_PORT", "5433")))
+DB_NAME: str = _get("DB_NAME", _get("POSTGRES_DB", "ragdb"))
+DB_USER: str = _get("DB_USER", _get("POSTGRES_USER", "raguser"))
+DB_PASSWORD: str = _get("DB_PASSWORD", _get("POSTGRES_PASSWORD", "ragpass"))
 
 # ----------------------------------------------------------------------
 # RAG retrieval

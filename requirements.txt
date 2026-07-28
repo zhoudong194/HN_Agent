@@ -1,35 +1,40 @@
 # ============================================================
-# requirements.txt — Company Rules RAG System
-# ============================================================
-# Install:  pip install -r requirements.txt
+# requirements.txt - HN_Agent runtime dependencies
+# Works on linux/amd64 and linux/arm64 with Python 3.11.
 # ============================================================
 
-# ---- Core RAG framework ----
+# ---- API / web ----
+fastapi>=0.109.0
+uvicorn[standard]>=0.27.0
+python-multipart>=0.0.9
+pydantic[email]>=2.0.0
+
+# ---- Database ----
+psycopg2-binary>=2.9.9
+
+# ---- Auth / RBAC ----
+bcrypt>=4.1.0
+python-jose[cryptography]>=3.3.0
+cachetools>=5.3.0
+
+# ---- RAG framework / embedding ----
 llama-index-core>=0.10.0
 llama-index-embeddings-huggingface>=0.2.0
+sentence-transformers>=2.7.0
+torch>=2.1.0
+transformers>=4.35.0
+sentencepiece>=0.1.99
+accelerate>=0.25.0
 
-# ---- Vector search (FAISS — no extra DB needed) ----
-faiss-cpu>=1.8.0
+# ---- Retrieval ----
+rank-bm25>=0.2.2
+jieba>=0.42.1
+numpy>=1.24.0
 
 # ---- Document parsing ----
 python-docx>=1.0.0
+docx2txt>=0.8
 pypdf>=4.0.0
 
-# ---- LLM / OpenAI SDK ----
-openai>=1.0.0
-
-# ---- Web server ----
-fastapi>=0.109.0
-uvicorn[standard]>=0.27.0
-
-# ---- Embedding model & tokenizer ----
-sentencepiece>=0.1.99
-torch>=2.0.0
-transformers>=4.35.0
-accelerate>=0.25.0
-
-# ---- Config / env ----
+# ---- Config ----
 python-dotenv>=1.0.0
-
-# ---- Utilities ----
-numpy>=1.24.0

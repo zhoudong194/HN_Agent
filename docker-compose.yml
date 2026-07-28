@@ -1,99 +1,86 @@
 # ================================================================
-# docker-compose.yml — Company Rules RAG System
+# docker-compose.yml - HN_Agent cross-platform local deployment
 #
-# Services:
-#   postgres  — PostgreSQL 15 + pgvector extension
-#   rag-api   — FastAPI backend (depends on postgres)
+# Works on x86_64 and ARM64 as long as Docker supports the host arch.
 #
-# Usage:
-#   docker compose up --build          # first time
-#   docker compose up -d               # restart
-#   docker compose logs -f rag-api     # watch logs
+# Start:
+#   docker compose up --build
 #
-# Ports:
-#   5432  — PostgreSQL (only on host, not exposed externally)
-#   8000  — Web UI + REST API
+# Web:
+#   http://localhost:8000
+#
+# PostgreSQL from host tools:
+#   host=localhost port=5433 db=ragdb user=raguser password=ragpass
 # ================================================================
 
-version: "3.9"
-
-volumes:
-  postgres_data:          # PostgreSQL 数据持久化
-  chroma_data:           # (保留旧目录兼容，旧版本迁移时可删除)
-
 services:
-
-  # ----------------------------------------------------------------
-  # PostgreSQL + pgvector
-  # ----------------------------------------------------------------
   postgres:
-    image: ankane/pgvector:v0.7.0
-    container_name: rag_postgres
+    image: pgvector/pgvector:pg16
+    container_name: hn_agent_postgres
     restart: unless-stopped
     environment:
-      POSTGRES_DB: ${POSTGRES_DB:-ragdb}
-      POSTGRES_USER: ${POSTGRES_USER:-raguser}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ragpass_secure_2026}
+      POSTGRES_DB: ${DB_NAME:-ragdb}
+      POSTGRES_USER: ${DB_USER:-raguser}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-ragpass}
+    ports:
+      - "127.0.0.1:${DB_HOST_PORT:-5433}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-    ports:
-      - "127.0.0.1:5432:5432"        # 仅本地访问，外部不暴露
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-raguser} -d ${POSTGRES_DB:-ragdb}"]
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 10s
       timeout: 5s
-      retries: 5
+      retries: 10
 
-  # ----------------------------------------------------------------
-  # RAG API
-  # ----------------------------------------------------------------
   rag-api:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: rag_api
+    image: hn-agent-rag:local
+    container_name: hn_agent_api
     restart: unless-stopped
     depends_on:
       postgres:
         condition: service_healthy
     environment:
-      # Database — 使用 Docker 网络内部地址
-      POSTGRES_HOST: postgres
-      POSTGRES_PORT: "5432"
-      POSTGRES_DB: ${POSTGRES_DB:-ragdb}
-      POSTGRES_USER: ${POSTGRES_USER:-raguser}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ragpass_secure_2026}
-      # LLM
+      HOST: 0.0.0.0
+      PORT: "8000"
+
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_NAME: ${DB_NAME:-ragdb}
+      DB_USER: ${DB_USER:-raguser}
+      DB_PASSWORD: ${DB_PASSWORD:-ragpass}
+      DB_WAIT_TIMEOUT: "120"
+
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPENAI_API_BASE: ${OPENAI_API_BASE:-https://dashscope.aliyuncs.com/compatible-mode/v1}
       LLM_MODEL: ${LLM_MODEL:-qwen-plus}
-      LLM_TEMPERATURE: "0.1"
-      LLM_MAX_TOKENS: "1024"
-      # Embedding
-      EMBED_MODEL_NAME: BAAI/bge-large-zh-v1.5
+      LLM_TEMPERATURE: ${LLM_TEMPERATURE:-0.1}
+      LLM_MAX_TOKENS: ${LLM_MAX_TOKENS:-1024}
+
+      EMBED_MODEL_NAME: ${EMBED_MODEL_NAME:-BAAI/bge-large-zh-v1.5}
       EMBED_DIM: "1024"
       HF_TOKEN: ${HF_TOKEN:-}
-      # RAG
-      TOP_K: "5"
-      SIMILARITY_THRESHOLD: "0.0"
-      # Server
-      HOST: "0.0.0.0"
-      PORT: "8000"
+
+      TOP_K: ${TOP_K:-5}
+      SIMILARITY_THRESHOLD: ${SIMILARITY_THRESHOLD:-0.0}
       DATA_DIR: /app/data
-    volumes:
-      - ./data:/app/data         # 源文档（宿主机可读写）
-      - ./static:/app/static     # 前端文件
-      - ./chroma_data:/app/chroma_db  # (兼容旧迁移)
+
+      JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
+      JWT_TTL_HOURS: ${JWT_TTL_HOURS:-8}
+
+      # Set AUTO_INGEST=1 to ingest files mounted in ./data on container start.
+      AUTO_INGEST: ${AUTO_INGEST:-0}
     ports:
-      - "8000:8000"
-    mem_limit: 4g                # 限制内存，防止 BGE 模型吃满 RAM
-    healthcheck:
-      test: ["CMD", "curl", "-sf", "http://localhost:8000/api/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 60s          # 首次 healthcheck 等待模型加载完成
+      - "${APP_PORT:-8000}:8000"
+    volumes:
+      - ./data:/app/data
+      - ./models:/app/models
+      - hf_cache:/app/.cache/huggingface
+      - st_cache:/app/.cache/sentence-transformers
 
 volumes:
   postgres_data:
-    driver: local
+  hf_cache:
+  st_cache:

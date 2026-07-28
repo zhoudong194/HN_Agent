@@ -18,16 +18,22 @@ Indexes
 from __future__ import annotations
 
 import hashlib
+import logging
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+import bcrypt
 import psycopg2
 from psycopg2 import pool
 from psycopg2.extras import execute_values
 
 import config
+
+# Default admin password, rewritten as a real bcrypt hash on first boot.
+_DEFAULT_ADMIN_EMAIL = "admin@example.com"
+_DEFAULT_ADMIN_PASSWORD = "admin123"
 
 # ----------------------------------------------------------------------
 # Connection pool
@@ -392,3 +398,40 @@ def init_tables():
     except Exception as e:
         import logging
         logging.getLogger(__name__).warning("init_tables: %s", e)
+
+
+# ----------------------------------------------------------------------
+# RBAC schema bootstrap
+# ----------------------------------------------------------------------
+_RBAC_SQL_PATH = _APP_DIR / "_rbac_init.sql"
+
+
+def _hash_password(plain: str) -> str:
+    """bcrypt hash in modular crypt format. Truncate to 72 bytes (bcrypt limit)."""
+    pw = plain.encode("utf-8")[:72]
+    return bcrypt.hashpw(pw, bcrypt.gensalt(rounds=10)).decode("ascii")
+
+
+def ensure_rbac_schema() -> None:
+    """
+    Apply _rbac_init.sql if the rbac schema is missing, then refresh the
+    placeholder admin password with a real bcrypt hash. Idempotent.
+    """
+    log = logging.getLogger(__name__)
+    sql_text = _RBAC_SQL_PATH.read_text(encoding="utf-8")
+
+    with _PooledConn() as conn:
+        cur = conn.cursor()
+        cur.execute(sql_text)
+        conn.commit()
+
+        # Rewrite placeholder hash for the seeded admin user
+        admin_pw_hash = _hash_password(_DEFAULT_ADMIN_PASSWORD)
+        cur.execute(
+            "UPDATE rbac.users SET pw_hash=%s "
+            "WHERE email=%s AND pw_hash='__SEED__PLACEHOLDER__'",
+            (admin_pw_hash, _DEFAULT_ADMIN_EMAIL),
+        )
+        if cur.rowcount:
+            log.info("[RBAC] Seeded admin user password (email=%s)", _DEFAULT_ADMIN_EMAIL)
+        conn.commit()

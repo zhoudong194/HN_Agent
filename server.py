@@ -36,7 +36,7 @@ log = logging.getLogger("server")
 
 import config
 
-from fastapi import FastAPI, HTTPException, Query, UploadFile, File, Form
+from fastapi import FastAPI, HTTPException, Query, UploadFile, File, Form, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -51,6 +51,10 @@ from data_ingestion import (
     convert_to_markdown,
     create_semantic_chunks,
 )
+
+# RBAC
+from rbac import require_permission, require_user
+from rbac_routes import router as rbac_router
 
 # ----------------------------------------------------------------------
 # App setup
@@ -75,6 +79,9 @@ app.add_middleware(
 
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
+# Mount RBAC routes (/api/auth/* and /api/admin/*)
+app.include_router(rbac_router, prefix="/api")
+
 log.info("Loaded configuration: %s", config.status_summary())
 
 
@@ -86,13 +93,14 @@ log.info("Loaded configuration: %s", config.status_summary())
 class QueryRequest(BaseModel):
     question: str = Field(..., min_length=1, max_length=2000)
     top_k: int = Field(default=5, ge=1, le=20)
-    min_score: float = Field(default=0.0, ge=0.0, le=1.0)
+    min_score: Optional[float] = Field(default=None, ge=0.0, le=1.0)
 
 
 class SourceItem(BaseModel):
     id: str
     text: str
-    score: float
+    score: Optional[float] = None
+    rrf_score: Optional[float] = None
     header_1: Optional[str] = None
     header_2: Optional[str] = None
     header_3: Optional[str] = None
@@ -106,6 +114,7 @@ class QueryResponse(BaseModel):
     mode: str
     answer: str
     sources: List[SourceItem]
+    retrieval_required: bool = True
     retrieval_stats: Optional[Dict[str, Any]] = None
 
 
@@ -114,6 +123,7 @@ class HealthResponse(BaseModel):
     llm_available: bool
     embedding_model: str
     llm_model: str
+    collection: str = "PostgreSQL + pgvector"
     vector_store: str
     metadata_store: str
     document_count: int
@@ -125,6 +135,7 @@ class DocumentInfo(BaseModel):
     filename: str
     file_type: str
     file_size: int
+    size_bytes: Optional[int] = None
     category: Optional[str]
     uploader: Optional[str]
     title: Optional[str]
@@ -179,7 +190,7 @@ async def health():
 
 
 @app.post("/api/query", response_model=QueryResponse)
-async def query(req: QueryRequest):
+async def query(req: QueryRequest, _user=Depends(require_permission("policy:read"))):
     svc = get_service()
     try:
         result = svc.query(
@@ -197,6 +208,7 @@ async def query(req: QueryRequest):
         mode=result["mode"],
         answer=result["answer"],
         sources=sources,
+        retrieval_required=result.get("retrieval_required", True),
         retrieval_stats=result.get("retrieval_stats"),
     )
 
@@ -206,6 +218,7 @@ async def upload_document(
     file: UploadFile = File(...),
     category: Optional[str] = Form(None),
     uploader: Optional[str] = Form(None),
+    _user=Depends(require_permission("doc:write")),
 ):
     """
     上传单个文档（.docx / .md），解析文本、切块、向量化后存入 FAISS + SQLite。
@@ -302,6 +315,7 @@ async def list_all_documents(
     category: Optional[str] = Query(None),
     limit: int = Query(100, ge=1, le=1000),
     offset: int = Query(0, ge=0),
+    _user=Depends(require_permission("policy:read")),
 ):
     docs = database.list_documents(status=status, category=category, limit=limit, offset=offset)
     result: List[DocumentInfo] = []
@@ -313,6 +327,7 @@ async def list_all_documents(
                 filename=doc["filename"],
                 file_type=doc["file_type"],
                 file_size=doc["file_size"],
+                size_bytes=doc["file_size"],
                 category=doc.get("category"),
                 uploader=doc.get("uploader"),
                 title=doc.get("title"),
@@ -327,7 +342,7 @@ async def list_all_documents(
 
 
 @app.delete("/api/documents/{doc_id}", response_model=dict)
-async def archive_doc(doc_id: str):
+async def archive_doc(doc_id: str, _user=Depends(require_permission("doc:write"))):
     """软删除文档（标记为 archived），其所有 chunk 同步删除。"""
     ok = database.archive_document(doc_id)
     if not ok:
@@ -337,7 +352,7 @@ async def archive_doc(doc_id: str):
 
 
 @app.delete("/api/documents/{doc_id}/hard", response_model=dict)
-async def hard_delete_doc(doc_id: str):
+async def hard_delete_doc(doc_id: str, _user=Depends(require_permission("doc:write"))):
     """永久删除文档及全部 chunk（不可恢复）。"""
     doc = database.get_document(doc_id)
     if not doc:
@@ -348,7 +363,7 @@ async def hard_delete_doc(doc_id: str):
 
 
 @app.get("/api/categories", response_model=CategoryResponse)
-async def list_categories():
+async def list_categories(_user=Depends(require_permission("policy:read"))):
     """返回所有已使用的文档分类（去重）。"""
     cats = database.get_categories()
     return CategoryResponse(categories=cats)
@@ -362,6 +377,12 @@ async def list_categories():
 @app.on_event("startup")
 async def _warmup():
     log.info("Warming up RAG service...")
+    try:
+        database.ensure_rbac_schema()
+        log.info("RBAC schema ensured")
+    except Exception as e:
+        log.exception("RBAC schema bootstrap failed: %s", e)
+        raise
     try:
         svc = get_service()
         svc.initialize()

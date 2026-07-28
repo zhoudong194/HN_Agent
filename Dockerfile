@@ -1,63 +1,70 @@
+# syntax=docker/dockerfile:1
 # ================================================================
-# Dockerfile — Company Rules RAG System (PostgreSQL + pgvector)
-#
-# Multi-stage build:
-#   stage 1  — download models (~330 MB)
-#   stage 2  — production runtime image
+# Dockerfile - HN_Agent RAG API
+# Multi-arch ready: builds on linux/amd64 and linux/arm64.
 # ================================================================
-FROM python:3.11-slim AS builder
+
+FROM python:3.11-slim-bookworm AS builder
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1
 
 WORKDIR /app
 
-# Install build dependencies (for sentencepiece / torch)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --prefix=/install -r requirements.txt
 
 
-# ================================================================
-FROM python:3.11-slim
+FROM python:3.11-slim-bookworm
 
-LABEL maintainer="HN_Agent"
-ENV PYTHONDONTWRITEBYTECODE=1
-ENV PYTHONUNBUFFERED=1
-ENV DEBIAN_FRONTEND=noninteractive
+LABEL org.opencontainers.image.title="HN_Agent"
+LABEL org.opencontainers.image.description="Enterprise policy RAG API with FastAPI, PostgreSQL and pgvector"
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PYTHONIOENCODING=utf-8 \
+    DEBIAN_FRONTEND=noninteractive \
+    HF_HOME=/app/.cache/huggingface \
+    TRANSFORMERS_CACHE=/app/.cache/huggingface \
+    SENTENCE_TRANSFORMERS_HOME=/app/.cache/sentence-transformers
 
 WORKDIR /app
 
-# Runtime dependencies only
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    libpq5 \
     curl \
+    libgomp1 \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy installed packages from builder
-COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
-COPY --from=builder /usr/local/bin /usr/local/bin
+COPY --from=builder /install /usr/local
 
-# Copy application code
+COPY auth.py .
 COPY config.py .
 COPY database.py .
-COPY rag_service.py .
 COPY data_ingestion.py .
-COPY server.py .
-COPY rag_query.py .
 COPY init_db.py .
+COPY rag_query.py .
+COPY rag_service.py .
+COPY rbac.py .
+COPY rbac_routes.py .
+COPY recall.py .
+COPY server.py .
+COPY schema.sql .
+COPY _rbac_init.sql .
+COPY docker-entrypoint.sh .
 COPY static/ ./static/
-COPY .env.example .env.template
 
-# Pre-download BGE embedding model on first run (done at startup via entrypoint)
-ENV HF_HUB_OFFLINE=0
-ENV TRANSFORMERS_OFFLINE=0
+RUN mkdir -p /app/data /app/models /app/.cache/huggingface /app/.cache/sentence-transformers \
+    && chmod +x /app/docker-entrypoint.sh
 
-# Entrypoint: init DB on first start, then run server
-ENTRYPOINT ["/bin/bash", "-c"]
-CMD [\
-    "python init_db.py && \
-     python data_ingestion.py && \
-     uvicorn server:app --host 0.0.0.0 --port 8000"\
-]
+EXPOSE 8000
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=90s --retries=3 \
+    CMD curl -fsS http://localhost:${PORT:-8000}/api/health || exit 1
+
+ENTRYPOINT ["bash", "/app/docker-entrypoint.sh"]

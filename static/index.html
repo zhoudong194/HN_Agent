@@ -7,28 +7,23 @@
 <style>
   /* ---------- Tokens ---------- */
   :root {
-    /* Surfaces */
     --bg-page:    #F8FAFC;
     --bg-elev:    #FFFFFF;
     --bg-subtle:  #F1F5F9;
     --bg-hover:   #E2E8F0;
 
-    /* Borders */
     --border:     #E2E8F0;
     --border-strong: #CBD5E1;
 
-    /* Text */
     --text-1:     #0F172A;
     --text-2:     #334155;
     --text-3:     #64748B;
     --text-4:     #94A3B8;
 
-    /* Brand: a single, deliberate deep blue */
     --brand:      #1E40AF;
     --brand-soft: #EFF4FF;
     --brand-ink:  #1E3A8A;
 
-    /* Status */
     --ok:         #15803D;
     --ok-soft:    #DCFCE7;
     --warn:       #B45309;
@@ -100,6 +95,66 @@
     color: var(--text-3);
     font-size: 13px;
   }
+
+  /* Topbar right cluster: status pill + user + admin tab + logout */
+  .topbar-right {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  /* Tabs in topbar (Admin panel entry; hidden for non-admins) */
+  .topbar-tab {
+    appearance: none;
+    border: none;
+    background: transparent;
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-3);
+    padding: 6px 10px;
+    border-radius: var(--r-sm);
+    cursor: pointer;
+  }
+  .topbar-tab:hover { color: var(--text-1); background: var(--bg-subtle); }
+  .topbar-tab.active { color: var(--brand); background: var(--brand-soft); }
+  .topbar-tab.hidden { display: none; }
+
+  /* User chip */
+  .user-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 4px 4px 10px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    font-size: 12px;
+    color: var(--text-2);
+    background: var(--bg-elev);
+  }
+  .user-chip .avatar {
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    background: var(--brand);
+    color: #fff;
+    display: grid;
+    place-items: center;
+    font-size: 11px;
+    font-weight: 600;
+  }
+  .user-chip .logout {
+    appearance: none;
+    border: none;
+    background: transparent;
+    color: var(--text-4);
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 12px;
+    padding: 4px 8px;
+    border-radius: 999px;
+  }
+  .user-chip .logout:hover { background: var(--bg-subtle); color: var(--err); }
 
   /* Status pill — quiet, single line */
   .status {
@@ -267,6 +322,11 @@
   .btn.danger:hover:not(:disabled) {
     background: var(--err-soft);
     border-color: var(--err);
+  }
+  .btn.ghost {
+    background: transparent;
+    border-color: var(--border);
+    color: var(--text-3);
   }
 
   /* Suggested questions */
@@ -536,6 +596,272 @@
   .toast.error   { border-left: 3px solid var(--err); }
   .toast.hidden  { opacity: 0; transform: translateY(6px); pointer-events: none; }
 
+  /* =================== LOGIN SCREEN =================== */
+  #login-screen {
+    display: grid;
+    place-items: center;
+    height: 100vh;
+    background: var(--bg-page);
+  }
+  .login-card {
+    width: 360px;
+    background: var(--bg-elev);
+    border: 1px solid var(--border);
+    border-radius: var(--r-lg);
+    padding: 32px 28px;
+    box-shadow: 0 1px 0 var(--border);
+  }
+  .login-card .login-mark {
+    width: 10px;
+    height: 10px;
+    border-radius: 2px;
+    background: var(--brand);
+    margin-bottom: 18px;
+  }
+  .login-card h1 {
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--text-1);
+    margin: 0 0 4px;
+    letter-spacing: -0.01em;
+  }
+  .login-card p.sub {
+    font-size: 13px;
+    color: var(--text-3);
+    margin: 0 0 24px;
+  }
+  .login-field {
+    display: block;
+    margin-bottom: 12px;
+  }
+  .login-field label {
+    display: block;
+    font-size: 12px;
+    color: var(--text-2);
+    margin-bottom: 6px;
+    font-weight: 500;
+  }
+  .login-field input {
+    width: 100%;
+    padding: 9px 12px;
+    border: 1px solid var(--border-strong);
+    border-radius: var(--r-md);
+    background: var(--bg-elev);
+    color: var(--text-1);
+    font-family: inherit;
+    font-size: 14px;
+    outline: none;
+    transition: border-color 0.15s, box-shadow 0.15s;
+  }
+  .login-field input:focus {
+    border-color: var(--brand);
+    box-shadow: 0 0 0 3px var(--brand-soft);
+  }
+  .login-error {
+    color: var(--err);
+    background: var(--err-soft);
+    border-radius: var(--r-sm);
+    padding: 8px 10px;
+    font-size: 12px;
+    margin-bottom: 12px;
+    display: none;
+  }
+  .login-error.shown { display: block; }
+  .login-submit {
+    width: 100%;
+    padding: 10px;
+    font-size: 14px;
+  }
+  .login-hint {
+    margin-top: 16px;
+    font-size: 11px;
+    color: var(--text-4);
+    text-align: center;
+    line-height: 1.6;
+  }
+  .login-hint code {
+    font-family: var(--font-num);
+    background: var(--bg-subtle);
+    padding: 1px 5px;
+    border-radius: 4px;
+    color: var(--text-2);
+  }
+
+  /* =================== ADMIN VIEW =================== */
+  #admin-view {
+    display: grid;
+    grid-template-rows: 48px 1fr;
+    height: 100%;
+    min-height: 0;
+  }
+  .admin-tabs {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 0 24px;
+    background: var(--bg-elev);
+    border-bottom: 1px solid var(--border);
+  }
+  .admin-tab {
+    appearance: none;
+    border: none;
+    background: transparent;
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-3);
+    padding: 12px 14px;
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    transition: color 0.12s, border-color 0.12s;
+  }
+  .admin-tab:hover { color: var(--text-1); }
+  .admin-tab.active { color: var(--brand); border-bottom-color: var(--brand); }
+
+  .admin-body {
+    overflow-y: auto;
+    padding: 24px;
+  }
+  .admin-section {
+    max-width: 1000px;
+    margin: 0 auto;
+  }
+  .admin-section h2 {
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--text-1);
+    margin: 0 0 16px;
+  }
+  .admin-section .sub {
+    color: var(--text-3);
+    font-size: 13px;
+    margin: -8px 0 16px;
+  }
+
+  /* Admin table */
+  .admin-table {
+    width: 100%;
+    border-collapse: collapse;
+    border: 1px solid var(--border);
+    border-radius: var(--r-md);
+    overflow: hidden;
+    background: var(--bg-elev);
+    font-size: 13px;
+  }
+  .admin-table th, .admin-table td {
+    text-align: left;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border);
+  }
+  .admin-table th {
+    background: var(--bg-subtle);
+    color: var(--text-3);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+  .admin-table tr:last-child td { border-bottom: none; }
+  .admin-table td.mono { font-family: var(--font-num); font-size: 12px; color: var(--text-3); }
+  .admin-table .row-actions { display: flex; gap: 6px; }
+  .admin-table .badge {
+    display: inline-block;
+    padding: 2px 7px;
+    border-radius: 999px;
+    background: var(--brand-soft);
+    color: var(--brand);
+    font-size: 11px;
+    margin-right: 4px;
+  }
+  .admin-table .badge.muted { background: var(--bg-subtle); color: var(--text-3); }
+  .admin-table .badge.warn { background: var(--warn-soft); color: var(--warn); }
+  .admin-table .badge.err { background: var(--err-soft); color: var(--err); }
+
+  /* Admin forms (create user, role) */
+  .admin-form {
+    margin-top: 16px;
+    padding: 16px;
+    background: var(--bg-elev);
+    border: 1px solid var(--border);
+    border-radius: var(--r-md);
+  }
+  .admin-form-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+  }
+  .admin-form-grid .full { grid-column: 1 / -1; }
+  .admin-form label {
+    display: block;
+    font-size: 12px;
+    color: var(--text-2);
+    margin-bottom: 4px;
+    font-weight: 500;
+  }
+  .admin-form input[type=text],
+  .admin-form input[type=email],
+  .admin-form input[type=password],
+  .admin-form select {
+    width: 100%;
+    padding: 7px 10px;
+    border: 1px solid var(--border-strong);
+    border-radius: var(--r-sm);
+    background: var(--bg-elev);
+    color: var(--text-1);
+    font-family: inherit;
+    font-size: 13px;
+    outline: none;
+  }
+  .admin-form input:focus,
+  .admin-form select:focus {
+    border-color: var(--brand);
+    box-shadow: 0 0 0 3px var(--brand-soft);
+  }
+  .admin-form .perm-matrix {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 6px;
+  }
+  .admin-form .perm-matrix label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 10px;
+    border: 1px solid var(--border);
+    border-radius: var(--r-sm);
+    cursor: pointer;
+    font-size: 12px;
+    color: var(--text-2);
+    transition: background 0.12s, border-color 0.12s;
+  }
+  .admin-form .perm-matrix label:hover {
+    background: var(--bg-subtle);
+  }
+  .admin-form .perm-matrix label.checked {
+    background: var(--brand-soft);
+    border-color: var(--brand);
+    color: var(--brand);
+  }
+  .admin-form .perm-matrix .desc {
+    color: var(--text-3);
+    font-size: 11px;
+    margin-left: 4px;
+  }
+  .admin-form .actions {
+    grid-template-columns: auto 1fr;
+    padding: 0;
+    margin-top: 12px;
+  }
+  .admin-empty {
+    padding: 32px;
+    text-align: center;
+    color: var(--text-4);
+    font-size: 13px;
+    background: var(--bg-elev);
+    border: 1px solid var(--border);
+    border-radius: var(--r-md);
+  }
+
   /* =================== MOBILE =================== */
   @media (max-width: 860px) {
     .layout { grid-template-columns: 1fr; }
@@ -547,6 +873,8 @@
     header.topbar { padding: 0 16px; }
     .messages { padding: 20px 12px; }
     .composer { padding: 12px 16px 14px; }
+    .login-card { width: 92vw; }
+    .admin-form-grid { grid-template-columns: 1fr; }
   }
 
   @media (prefers-reduced-motion: reduce) {
@@ -555,7 +883,29 @@
 </style>
 </head>
 <body>
-<div class="app">
+
+<!-- ============== LOGIN SCREEN (shown when no token) ============== -->
+<div id="login-screen" style="display:none;">
+  <form class="login-card" id="login-form" autocomplete="off">
+    <div class="login-mark"></div>
+    <h1>登录制度助手</h1>
+    <p class="sub">请用您的工作邮箱进入。</p>
+    <div class="login-error" id="login-error"></div>
+    <div class="login-field">
+      <label for="login-email">邮箱</label>
+      <input id="login-email" type="email" required autocomplete="username" />
+    </div>
+    <div class="login-field">
+      <label for="login-password">密码</label>
+      <input id="login-password" type="password" required autocomplete="current-password" minlength="1" />
+    </div>
+    <button type="submit" class="btn primary login-submit" id="login-submit">登录</button>
+    <p class="login-hint">默认管理员：<code>admin@example.com</code> / <code>admin123</code></p>
+  </form>
+</div>
+
+<!-- ============== APP (shown when authenticated) ============== -->
+<div id="app" class="app" style="display:none;">
   <header class="topbar">
     <div class="brand">
       <span class="brand-mark" aria-hidden="true"></span>
@@ -563,12 +913,22 @@
       <span class="brand-sep">·</span>
       <span class="brand-context" id="header-sub">载入中…</span>
     </div>
-    <div id="status-pill" class="status">
-      <span class="dot"></span><span id="status-text">检测中</span>
+    <div class="topbar-right">
+      <button id="tab-chat-btn" class="topbar-tab active" data-view="chat">问答</button>
+      <button id="tab-admin-btn" class="topbar-tab hidden" data-view="admin">管理后台</button>
+      <div id="status-pill" class="status">
+        <span class="dot"></span><span id="status-text">检测中</span>
+      </div>
+      <div class="user-chip">
+        <span class="avatar" id="user-avatar">U</span>
+        <span id="user-name">…</span>
+        <button class="logout" id="logout-btn" title="退出登录">退出</button>
+      </div>
     </div>
   </header>
 
-  <div class="layout">
+  <!-- User chat view -->
+  <div id="chat-view" class="layout">
     <aside class="sidebar">
       <div class="group">
         <div class="group-label">知识库</div>
@@ -578,11 +938,11 @@
             <span class="count" id="doc-count">—</span>
           </div>
           <div id="doc-list"></div>
-          <div class="upload-row">
+          <div class="upload-row" id="upload-row" style="display:none;">
             <label for="upload-input">选择 .docx / .md 文件</label>
             <input id="upload-input" type="file" accept=".docx,.md" />
           </div>
-          <div class="actions">
+          <div class="actions" id="upload-actions" style="display:none;">
             <button id="upload-btn" class="btn primary">入库</button>
             <button id="clear-btn" class="btn danger">清空</button>
           </div>
@@ -623,12 +983,152 @@
       </div>
     </main>
   </div>
+
+  <!-- Admin view -->
+  <div id="admin-view" style="display:none;">
+    <div class="admin-tabs">
+      <button class="admin-tab active" data-admin-tab="users">用户</button>
+      <button class="admin-tab" data-admin-tab="roles">角色</button>
+      <button class="admin-tab" data-admin-tab="permissions">权限</button>
+    </div>
+    <div class="admin-body" id="admin-body"></div>
+  </div>
 </div>
 
 <div id="toast" class="toast hidden"></div>
 
 <script>
-const $ = (id) => document.getElementById(id);
+"use strict";
+
+/* ============================================================
+ *  Auth state + API helper
+ * ============================================================ */
+const TOKEN_KEY = "hn_agent_token";
+const USER_KEY  = "hn_agent_user";
+
+const Auth = {
+  token: localStorage.getItem(TOKEN_KEY) || null,
+  user:  JSON.parse(localStorage.getItem(USER_KEY) || "null"),
+};
+
+function saveAuth(token, user) {
+  Auth.token = token;
+  Auth.user  = user;
+  localStorage.setItem(TOKEN_KEY, token);
+  localStorage.setItem(USER_KEY, JSON.stringify(user));
+}
+function clearAuth() {
+  Auth.token = null;
+  Auth.user  = null;
+  localStorage.removeItem(TOKEN_KEY);
+  localStorage.removeItem(USER_KEY);
+}
+
+async function api(path, opts = {}) {
+  const headers = Object.assign({}, opts.headers || {});
+  if (Auth.token) headers["Authorization"] = "Bearer " + Auth.token;
+  if (opts.json !== undefined) {
+    headers["Content-Type"] = "application/json; charset=utf-8";
+    opts.body = JSON.stringify(opts.json);
+    delete opts.json;
+  }
+  const res = await fetch(path, Object.assign({}, opts, { headers }));
+  if (res.status === 401) {
+    // Token invalid/expired — drop auth and bounce to login
+    clearAuth();
+    render();
+    return Promise.reject(new Error("未登录或会话已过期"));
+  }
+  return res;
+}
+
+/* ============================================================
+ *  Top-level view switching (login vs app; chat vs admin)
+ * ============================================================ */
+let currentView = "chat";   // "chat" | "admin"
+
+function $(id) { return document.getElementById(id); }
+
+function render() {
+  const loginEl = $("login-screen");
+  const appEl   = $("app");
+  if (!Auth.token || !Auth.user) {
+    loginEl.style.display = "";
+    appEl.style.display   = "none";
+    return;
+  }
+  loginEl.style.display = "none";
+  appEl.style.display   = "";
+
+  // Topbar identity
+  $("user-name").textContent = Auth.user.display_name || Auth.user.email;
+  $("user-avatar").textContent = (Auth.user.display_name || Auth.user.email || "U")[0].toUpperCase();
+  const isAdmin = Auth.user.is_admin || (Auth.user.roles || []).includes("tenant_admin");
+  const adminTab = $("tab-admin-btn");
+  adminTab.classList.toggle("hidden", !isAdmin);
+
+  // Hide admin-only upload affordances for non-admins
+  const canWriteDocs = (Auth.user.permissions || []).includes("doc:write");
+  $("upload-row").style.display    = canWriteDocs ? "" : "none";
+  $("upload-actions").style.display = canWriteDocs ? "" : "none";
+
+  showView(currentView);
+  refreshStatus();
+  loadDocs();
+}
+
+function showView(view) {
+  currentView = view;
+  $("chat-view").style.display   = view === "chat"   ? "" : "none";
+  $("admin-view").style.display  = view === "admin"  ? "" : "none";
+  $("tab-chat-btn").classList.toggle("active", view === "chat");
+  $("tab-admin-btn").classList.toggle("active", view === "admin");
+  if (view === "admin") renderAdminTab(getActiveAdminTab());
+}
+
+function switchTo(view) {
+  showView(view);
+}
+
+/* ============================================================
+ *  Login
+ * ============================================================ */
+async function doLogin(email, password) {
+  const errEl = $("login-error");
+  errEl.classList.remove("shown");
+  errEl.textContent = "";
+  try {
+    const res = await fetch("/api/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json; charset=utf-8" },
+      body: JSON.stringify({ email, password }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || ("HTTP " + res.status));
+    saveAuth(data.access_token, data.user);
+    currentView = "chat";
+    render();
+  } catch (e) {
+    errEl.textContent = "登录失败：" + e.message;
+    errEl.classList.add("shown");
+  }
+}
+
+$("login-form").addEventListener("submit", (e) => {
+  e.preventDefault();
+  doLogin($("login-email").value.trim(), $("login-password").value);
+});
+
+$("logout-btn").addEventListener("click", async () => {
+  try { await fetch("/api/auth/logout", { method: "POST" }); } catch (e) {}
+  clearAuth();
+  currentView = "chat";
+  render();
+});
+
+/* ============================================================
+ *  Chat view (existing functionality, wired through api())
+ * ============================================================ */
 const messagesEl = $("messages");
 const questionEl = $("question");
 const sendBtn    = $("send-btn");
@@ -654,7 +1154,7 @@ async function refreshStatus() {
     statusPill.className = "status " + cls;
     $("status-text").textContent = data.llm_available ? "LLM 在线" : "仅检索";
     headerSub.textContent =
-      data.embedding_model + " · " + data.collection;
+      data.embedding_model + " · " + (data.collection || data.vector_store);
   } catch (e) {
     statusPill.className = "status err";
     $("status-text").textContent = "后端离线";
@@ -666,7 +1166,8 @@ async function loadDocs() {
   const list = $("doc-list");
   list.innerHTML = '<div style="padding:12px;color:var(--text-4);font-size:12px;">载入中…</div>';
   try {
-    const res = await fetch("/api/documents");
+    const res = await api("/api/documents");
+    if (!res.ok) throw new Error("HTTP " + res.status);
     const docs = await res.json();
     docCount.textContent = docs.length;
     if (!docs.length) {
@@ -675,18 +1176,18 @@ async function loadDocs() {
     }
     list.innerHTML = "";
     docs.forEach((d) => {
-      const kb = (d.size_bytes / 1024).toFixed(1);
+      const size = d.size_bytes ?? d.file_size ?? 0;
+      const kb = (size / 1024).toFixed(1);
       const el = document.createElement("div");
       el.className = "doc-item";
-      el.innerHTML =
-        '<div class="name"></div><div class="meta"></div>';
+      el.innerHTML = '<div class="name"></div><div class="meta"></div>';
       el.querySelector(".name").textContent = d.filename;
       el.querySelector(".meta").textContent =
         d.file_type.toUpperCase() + " · " + kb + " KB";
       list.appendChild(el);
     });
   } catch (e) {
-    list.innerHTML = '<div style="padding:12px;color:var(--err);font-size:12px;">载入失败</div>';
+    list.innerHTML = '<div style="padding:12px;color:var(--err);font-size:12px;">载入失败：' + e.message + '</div>';
   }
 }
 
@@ -697,10 +1198,10 @@ async function uploadFile(file) {
   $("upload-btn").disabled = true;
   $("upload-btn").textContent = "入库中…";
   try {
-    const res = await fetch("/api/ingest", { method: "POST", body: fd });
+    const res = await api("/api/documents", { method: "POST", body: fd });
     const data = await res.json();
     if (!res.ok) throw new Error(data.detail || "上传失败");
-    toast(`已归档 ${data.chunks_added} 个片段`, "success");
+    toast("已归档 " + data.chunks_added + " 个片段", "success");
     await loadDocs();
     await refreshStatus();
   } catch (e) {
@@ -736,7 +1237,7 @@ function addMessage(role, content, opts = {}) {
   el.textContent = content;
   row.appendChild(el);
 
-  if (opts.mode || (opts.sources && opts.sources.length)) {
+  if (opts.retrieval_required && (opts.mode || (opts.sources && opts.sources.length))) {
     const meta = document.createElement("div");
     meta.className = "meta-row";
     if (opts.mode) {
@@ -815,10 +1316,9 @@ async function sendQuestion(text) {
   questionEl.style.height = "auto";
   addTyping();
   try {
-    const res = await fetch("/api/query", {
+    const res = await api("/api/query", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ question: text, top_k: 5 }),
+      json: { question: text, top_k: 5 },
     });
     const data = await res.json();
     removeTyping();
@@ -828,6 +1328,7 @@ async function sendQuestion(text) {
       addMessage("bot", data.answer, {
         mode: data.mode,
         sources: data.sources,
+        retrieval_required: data.retrieval_required,
       });
     }
   } catch (e) {
@@ -867,8 +1368,284 @@ $("upload-btn").addEventListener("click", () => {
 
 $("clear-btn").addEventListener("click", clearCollection);
 
-refreshStatus();
-loadDocs();
+$("tab-chat-btn").addEventListener("click",   () => switchTo("chat"));
+$("tab-admin-btn").addEventListener("click",  () => switchTo("admin"));
+
+/* ============================================================
+ *  Admin view
+ * ============================================================ */
+let activeAdminTab = "users";
+function getActiveAdminTab() { return activeAdminTab; }
+
+document.querySelectorAll(".admin-tab").forEach((b) => {
+  b.addEventListener("click", () => {
+    document.querySelectorAll(".admin-tab").forEach((x) => x.classList.remove("active"));
+    b.classList.add("active");
+    activeAdminTab = b.dataset.adminTab;
+    renderAdminTab(activeAdminTab);
+  });
+});
+
+function renderAdminTab(name) {
+  const body = $("admin-body");
+  if      (name === "users")       renderAdminUsers(body);
+  else if (name === "roles")       renderAdminRoles(body);
+  else if (name === "permissions") renderAdminPermissions(body);
+}
+
+async function renderAdminUsers(body) {
+  body.innerHTML = '<div class="admin-section"><h2>用户</h2><p class="sub">本租户内的成员与管理员。</p><div class="admin-empty">载入中…</div></div>';
+  let users, roles;
+  try {
+    const [uRes, rRes] = await Promise.all([api("/api/admin/users"), api("/api/admin/roles")]);
+    if (!uRes.ok) throw new Error("users HTTP " + uRes.status);
+    if (!rRes.ok) throw new Error("roles HTTP " + rRes.status);
+    users = await uRes.json();
+    roles = await rRes.json();
+  } catch (e) {
+    body.innerHTML = '<div class="admin-section"><h2>用户</h2><p class="sub">' + e.message + '</p></div>';
+    return;
+  }
+  const roleNameById = Object.fromEntries(roles.map((r) => [r.id, r.name]));
+
+  const rows = users.map((u) => {
+    const roleBadges = u.role_names.map((n) => '<span class="badge">' + escapeHtml(n) + '</span>').join("");
+    const statusBadge = u.is_active
+      ? '<span class="badge muted">active</span>'
+      : '<span class="badge err">disabled</span>';
+    const delBtn = (u.email !== Auth.user.email)
+      ? '<button class="btn ghost" data-act="delete-user" data-id="' + u.id + '">停用</button>'
+      : '<span class="badge muted">me</span>';
+    return (
+      '<tr>' +
+      '<td><strong>' + escapeHtml(u.display_name) + '</strong></td>' +
+      '<td>' + escapeHtml(u.email) + '</td>' +
+      '<td>' + roleBadges + statusBadge + '</td>' +
+      '<td class="mono">' + u.created_at.slice(0, 19).replace("T", " ") + '</td>' +
+      '<td class="row-actions">' + delBtn + '</td>' +
+      '</tr>'
+    );
+  }).join("");
+
+  const roleChecks = roles.map((r) =>
+    '<label><input type="checkbox" name="role_id" value="' + r.id + '"> ' +
+    escapeHtml(r.name) + (r.is_system ? ' <span class="badge muted">system</span>' : '') +
+    '</label>'
+  ).join("");
+
+  body.innerHTML = (
+    '<div class="admin-section">' +
+      '<h2>用户</h2>' +
+      '<p class="sub">本租户内的成员与管理员。</p>' +
+      '<table class="admin-table">' +
+        '<thead><tr><th>姓名</th><th>邮箱</th><th>角色</th><th>创建时间</th><th></th></tr></thead>' +
+        '<tbody>' + (rows || '<tr><td colspan="5" class="mono" style="text-align:center;">暂无用户</td></tr>') + '</tbody>' +
+      '</table>' +
+      '<div class="admin-form">' +
+        '<h3 style="margin:0 0 12px;font-size:13px;font-weight:600;color:var(--text-2);">新建用户</h3>' +
+        '<form id="form-create-user">' +
+          '<div class="admin-form-grid">' +
+            '<div><label>邮箱</label><input name="email" type="email" required></div>' +
+            '<div><label>姓名</label><input name="display_name" type="text" required></div>' +
+            '<div><label>初始密码 (≥8 位)</label><input name="password" type="password" minlength="8" required></div>' +
+            '<div class="full">' +
+              '<label>角色 (可多选)</label>' +
+              '<div class="perm-matrix">' + roleChecks + '</div>' +
+            '</div>' +
+          '</div>' +
+          '<div class="actions">' +
+            '<button type="submit" class="btn primary">创建</button>' +
+            '<span></span>' +
+          '</div>' +
+        '</form>' +
+      '</div>' +
+    '</div>'
+  );
+
+  // Wire row actions
+  body.querySelectorAll('[data-act="delete-user"]').forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const id = btn.dataset.id;
+      const target = users.find((x) => x.id === id);
+      if (!confirm("确认停用 " + target.email + " ?")) return;
+      try {
+        const res = await api("/api/admin/users/" + id, { method: "DELETE" });
+        if (!res.ok && res.status !== 204) {
+          const j = await res.json().catch(() => ({}));
+          throw new Error(j.detail || "HTTP " + res.status);
+        }
+        toast("已停用", "success");
+        renderAdminUsers(body);
+      } catch (e) {
+        toast("停用失败: " + e.message, "error");
+      }
+    });
+  });
+
+  // Wire create form
+  $("form-create-user").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    const role_ids = fd.getAll("role_id");
+    const payload = {
+      email:        (fd.get("email") || "").toString().trim(),
+      display_name: (fd.get("display_name") || "").toString().trim(),
+      password:     (fd.get("password") || "").toString(),
+      role_ids:     role_ids,
+    };
+    try {
+      const res = await api("/api/admin/users", { method: "POST", json: payload });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || "HTTP " + res.status);
+      toast("已创建 " + data.email, "success");
+      renderAdminUsers(body);
+    } catch (err) {
+      toast("创建失败: " + err.message, "error");
+    }
+  });
+}
+
+async function renderAdminRoles(body) {
+  body.innerHTML = '<div class="admin-section"><h2>角色</h2><p class="sub">角色是一组权限的命名集合，可赋给一个或多个用户。</p><div class="admin-empty">载入中…</div></div>';
+  let roles, perms;
+  try {
+    const [rRes, pRes] = await Promise.all([api("/api/admin/roles"), api("/api/admin/permissions")]);
+    if (!rRes.ok) throw new Error("roles HTTP " + rRes.status);
+    if (!pRes.ok) throw new Error("permissions HTTP " + pRes.status);
+    roles  = await rRes.json();
+    perms  = await pRes.json();
+  } catch (e) {
+    body.innerHTML = '<div class="admin-section"><h2>角色</h2><p class="sub">' + e.message + '</p></div>';
+    return;
+  }
+  const permDesc = Object.fromEntries(perms.map((p) => [p.key, p.description]));
+
+  const rows = roles.map((r) => {
+    const permBadges = (r.permission_keys.length === 0)
+      ? '<span class="badge muted">无</span>'
+      : r.permission_keys.map((k) => '<span class="badge" title="' + escapeHtml(permDesc[k] || k) + '">' + escapeHtml(k) + '</span>').join("");
+    const sysTag = r.is_system ? '<span class="badge warn">system</span>' : '<span class="badge muted">custom</span>';
+    const delBtn = r.is_system
+      ? '<span class="badge muted">—</span>'
+      : '<button class="btn ghost" data-act="delete-role" data-id="' + r.id + '" data-name="' + escapeHtml(r.name) + '">删除</button>';
+    return (
+      '<tr>' +
+      '<td><strong>' + escapeHtml(r.name) + '</strong> ' + sysTag + '</td>' +
+      '<td>' + r.user_count + '</td>' +
+      '<td>' + permBadges + '</td>' +
+      '<td class="row-actions">' + delBtn + '</td>' +
+      '</tr>'
+    );
+  }).join("");
+
+  const permChecks = perms.map((p) =>
+    '<label data-key="' + escapeHtml(p.key) + '"><input type="checkbox" name="perm_key" value="' + escapeHtml(p.key) + '">' +
+    '<strong>' + escapeHtml(p.key) + '</strong><span class="desc">' + escapeHtml(p.description) + '</span></label>'
+  ).join("");
+
+  body.innerHTML = (
+    '<div class="admin-section">' +
+      '<h2>角色</h2>' +
+      '<p class="sub">角色是一组权限的命名集合，可赋给一个或多个用户。</p>' +
+      '<table class="admin-table">' +
+        '<thead><tr><th>名称</th><th>用户数</th><th>权限</th><th></th></tr></thead>' +
+        '<tbody>' + (rows || '<tr><td colspan="4" class="mono" style="text-align:center;">暂无角色</td></tr>') + '</tbody>' +
+      '</table>' +
+      '<div class="admin-form">' +
+        '<h3 style="margin:0 0 12px;font-size:13px;font-weight:600;color:var(--text-2);">新建自定义角色</h3>' +
+        '<form id="form-create-role">' +
+          '<div class="admin-form-grid">' +
+            '<div class="full"><label>名称</label><input name="name" type="text" required></div>' +
+            '<div class="full">' +
+              '<label>权限 (可多选)</label>' +
+              '<div class="perm-matrix" id="create-role-perms">' + permChecks + '</div>' +
+            '</div>' +
+          '</div>' +
+          '<div class="actions">' +
+            '<button type="submit" class="btn primary">创建</button>' +
+            '<span></span>' +
+          '</div>' +
+        '</form>' +
+      '</div>' +
+    '</div>'
+  );
+
+  body.querySelectorAll('[data-act="delete-role"]').forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const id = btn.dataset.id;
+      const name = btn.dataset.name;
+      if (!confirm("确认删除角色 " + name + " ?")) return;
+      try {
+        const res = await api("/api/admin/roles/" + id, { method: "DELETE" });
+        if (!res.ok && res.status !== 204) {
+          const j = await res.json().catch(() => ({}));
+          throw new Error(j.detail || "HTTP " + res.status);
+        }
+        toast("已删除", "success");
+        renderAdminRoles(body);
+      } catch (e) {
+        toast("删除失败: " + e.message, "error");
+      }
+    });
+  });
+
+  $("form-create-role").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    const payload = {
+      name: (fd.get("name") || "").toString().trim(),
+      permission_keys: fd.getAll("perm_key"),
+    };
+    try {
+      const res = await api("/api/admin/roles", { method: "POST", json: payload });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || "HTTP " + res.status);
+      toast("已创建角色 " + data.name, "success");
+      renderAdminRoles(body);
+    } catch (err) {
+      toast("创建失败: " + err.message, "error");
+    }
+  });
+}
+
+async function renderAdminPermissions(body) {
+  body.innerHTML = '<div class="admin-section"><h2>权限</h2><p class="sub">系统级权限一览，不可新增/修改。</p><div class="admin-empty">载入中…</div></div>';
+  let perms;
+  try {
+    const res = await api("/api/admin/permissions");
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    perms = await res.json();
+  } catch (e) {
+    body.innerHTML = '<div class="admin-section"><h2>权限</h2><p class="sub">' + e.message + '</p></div>';
+    return;
+  }
+  const rows = perms.map((p) =>
+    '<tr><td class="mono">' + escapeHtml(p.key) + '</td><td>' + escapeHtml(p.description) + '</td></tr>'
+  ).join("");
+  body.innerHTML = (
+    '<div class="admin-section">' +
+      '<h2>权限</h2>' +
+      '<p class="sub">系统级权限一览。资源:动作 的形式，不可新增/修改。</p>' +
+      '<table class="admin-table">' +
+        '<thead><tr><th>key</th><th>说明</th></tr></thead>' +
+        '<tbody>' + rows + '</tbody>' +
+      '</table>' +
+    '</div>'
+  );
+}
+
+function escapeHtml(s) {
+  return String(s == null ? "" : s)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+/* ============================================================
+ *  Bootstrap
+ * ============================================================ */
+render();
 </script>
 </body>
 </html>
