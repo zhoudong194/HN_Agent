@@ -1,0 +1,1 @@
+"""Biz RAG document entity."""

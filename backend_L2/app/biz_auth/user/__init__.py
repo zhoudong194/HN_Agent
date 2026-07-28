@@ -1,0 +1,1 @@
+"""Biz auth user entity."""

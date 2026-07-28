@@ -1,0 +1,1 @@
+"""Biz mcp tool entity."""
